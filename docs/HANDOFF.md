@@ -3,7 +3,7 @@
 Current checkpoint. Replace this file at the end of each slice; it is not a diary.
 
 **Feature / slice:** Brief 01 slices A and B, and Brief 02 slices A and B (intermission: explicit departure and the
-zoned shop overlay). Completed 2026-09-05 on top of `8214446`. Awaiting Oscar's playtest of the intermission.
+zoned shop overlay). Approved by Oscar and deployed 2026-09-06 as `5ea49cc` on top of `8214446`; live at https://1v5.dev/.
 
 **Changed symbols:** `sim.ts` `fx`, `FX_SEED_SALT`, `burst`, `puff` (cosmetic draws), `draftClaimed`, `claimedOffer`,
 `choose` (claim only), `continueWave`, `nextShopWave`, `healAmount`, `anvilPreview`, `buyEvent`, post-claim guards on
@@ -19,12 +19,12 @@ covers all overlays. Dev builds expose `window.__orbwalk` (the Arena).
 pin still held, so no baseline was regenerated.
 
 **Verified:** `npm test` 136 passing; `npm run build` (tsc + vite) passing. `tests/determinism.test.mjs` fails on the
-pre-change sim and passes after. Browser check of the intermission at 1280x720 pending Oscar's session.
+pre-change sim and passes after. Intermission and HUD checked in the browser at 1280x720. CI deploy run 33965015113
+succeeded and the live site serves the new build.
 
 **Known issues:**
 - `Simulation.rng` is still seeded with the constant 7 in the browser; only tests choose a seed.
 - Orb count and scatter on kill still use the gameplay RNG on purpose (pickup timing is gameplay).
-- Brief 02 slice B copy and layout have not been playtested; expect wording and spacing notes.
 - Before the claim, the anvil / repair / reserve row still needs a small scroll at 720p; wallet and departure stay fixed.
 - The canvas HUD duplicates the React metrics row below the arena; consider trimming that row once the HUD has been played.
 
