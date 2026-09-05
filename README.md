@@ -23,6 +23,8 @@ Open the printed localhost URL. Everything is mouse + keyboard.
 
 Moving before the release cancels the attack. Moving after the release keeps the bolt and the remaining cooldown. That is the whole skill.
 
+While a run is on screen the game swallows the browser chords that share its keys: Ctrl/Cmd+S acts as Stop instead of opening the save dialog, F12 and Ctrl+Shift+I/J/C/K (Cmd+Option on a Mac) no longer open the developer tools, Ctrl+U no longer shows the source, and a right-click drag that drifts off the arena no longer opens the page context menu. From the start screen everything works as normal.
+
 ### Roguelike run
 
 - **Waves.** Each wave has a spawn budget that grows with the wave number and the threat level. Enemies portal in from the arena edges and are inert until the portal finishes.

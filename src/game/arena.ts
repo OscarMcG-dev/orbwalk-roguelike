@@ -1,4 +1,5 @@
 import { Synth } from './audio.ts';
+import { browserChord } from './hotkeys.ts';
 import { H, STEP, W } from './math.ts';
 import { draw, type RenderState } from './render.ts';
 import { Simulation } from './sim.ts';
@@ -39,6 +40,11 @@ export class Arena extends Simulation {
       this.listeners.push(() => el.removeEventListener(type, fn, opts));
     };
     on(canvas, 'contextmenu', e => e.preventDefault());
+    // Right-click steers, so a drag that drifts off the canvas must not open the page context menu (where
+    // the next click can land on Inspect). Extra mouse buttons must not navigate the tab away either.
+    on(window, 'contextmenu', e => { if (this.heldRight || this.onScreen) e.preventDefault(); });
+    on(canvas, 'auxclick', e => e.preventDefault());
+    on(canvas, 'mouseup', e => { if ((e as MouseEvent).button > 2) e.preventDefault(); });
     on(canvas, 'pointermove', ev => {
       this.point(ev as PointerEvent);
       if (this.heldRight && this.inside) this.move(this.cursor);
@@ -86,11 +92,13 @@ export class Arena extends Simulation {
     const target = e.target as HTMLElement | null;
     if (target?.isContentEditable || target?.closest?.('input,textarea,select,[contenteditable="true"]')) return;
     const key = e.key?.toLowerCase();
-    // Ctrl/Cmd+S would open the browser's "save page" file picker mid-fight (S is Stop, and a held
-    // modifier is an easy slip). Swallow it and treat it as Stop.
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === 's' || e.code === 'KeyS')) {
+    // Browser chords (save page, developer tools, view source, and any modifier held over a game key) are
+    // swallowed while a run is on screen; Ctrl/Cmd+S doubles as Stop. See hotkeys.ts.
+    const chord = browserChord(e, this.onScreen);
+    if (chord) {
       e.preventDefault();
-      if (this.status === 'running') {
+      e.stopPropagation();
+      if (chord === 'stop' && this.status === 'running') {
         this.stop();
         this.notify(this.snapshot());
       }
@@ -150,6 +158,11 @@ export class Arena extends Simulation {
       if (this.armed) this.armed = false;
       else this.togglePause();
     }
+  }
+
+  /** A run or drill is on screen: running, paused or in the shop. Browser chords are swallowed while true. */
+  get onScreen() {
+    return this.status !== 'idle' && this.status !== 'ended';
   }
 
   override stop() {
