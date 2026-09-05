@@ -13,7 +13,7 @@ export function registerTrainerTools(game: Arena) {
   const context = (document as Document & { modelContext?: { registerTool: (tool: Tool, options: { signal: AbortSignal }) => void | Promise<void> } }).modelContext;
   const lifecycle = new AbortController();
   if (!context?.registerTool) return () => {};
-  const actions = ['start', 'pause', 'resume', 'choose', 'reroll', 'heal', 'shard'];
+  const actions = ['start', 'pause', 'resume', 'choose', 'reroll', 'heal', 'shard', 'continue'];
   const tools: Tool[] = [
     {
       name: 'read_session',
@@ -24,8 +24,8 @@ export function registerTrainerTools(game: Arena) {
     },
     {
       name: 'control_session',
-      description: 'Start a run, pause/resume it, or during the upgrade screen choose an augment (index 0-2), buy a Stat Anvil shard (index 0-2), reroll, or heal.',
-      inputSchema: { type: 'object', properties: { action: { type: 'string', enum: actions }, index: { type: 'integer', minimum: 0, maximum: 2 } }, required: ['action'], additionalProperties: false },
+      description: 'Start a run, pause/resume it, or during the intermission: choose (claim the free augment, index 0-3; the screen stays open), shard (buy a Stat Anvil shard, index 0-2), reroll, heal, then continue (depart to the next wave; only after a claim).',
+      inputSchema: { type: 'object', properties: { action: { type: 'string', enum: actions }, index: { type: 'integer', minimum: 0, maximum: 3 } }, required: ['action'], additionalProperties: false },
       annotations: { readOnlyHint: false },
       execute: (input: unknown) => {
         const value = input as { action?: unknown; index?: unknown };
@@ -38,6 +38,7 @@ export function registerTrainerTools(game: Arena) {
           case 'reroll': game.reroll(); break;
           case 'heal': game.buyHeal(); break;
           case 'shard': game.buyShard(Number(value.index ?? 0)); break;
+          case 'continue': if (!game.draftClaimed) throw new Error('Claim the free augment before continuing.'); game.continueWave(); break;
         }
         return game.snapshot();
       },

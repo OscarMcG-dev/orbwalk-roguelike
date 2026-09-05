@@ -125,6 +125,9 @@ export class Arena extends Simulation {
       else if (code === 'KeyB') { e.preventDefault(); this.toggleBanish(); }
       else if (code === 'KeyA') { e.preventDefault(); this.ascend(); }
       else if (code === 'Escape' && this.banishMode) { e.preventDefault(); this.toggleBanish(); }
+      // Enter departs once the draft is claimed. A focused shop button already activates on Enter; let that click
+      // stand alone rather than also firing the global command.
+      else if (code === 'Enter' && (target?.tagName !== 'BUTTON' || target.dataset.depart !== undefined)) { e.preventDefault(); this.continueWave(); }
       this.notify(this.snapshot());
       return;
     }
@@ -250,6 +253,7 @@ export class Arena extends Simulation {
       wave: this.waveEvent, dash: this.dashEvent, upgrade: this.upgradeEvent, status: this.status,
       ready: this.dashReadyEvent, quest: this.questEvent, block: this.blockEvent, champion: this.championEvent,
       event: this.eventEvent, cut: this.cutEvent, swing: this.swingEvent, ping: this.pingEvent, rack: this.rackEvent, loaded: this.loadedEvent,
+      buy: this.buyEvent,
     };
     let steps = 0;
     while (this.acc >= STEP && steps < 12) {
@@ -277,6 +281,7 @@ export class Arena extends Simulation {
     if (before.event !== this.eventEvent) { this.synth.event(); stop(0.08); }
     if (before.cut !== this.cutEvent) { this.synth.cut(); stop(0.03); }
     if (before.swing !== this.swingEvent) this.synth.swing();
+    if (before.buy !== this.buyEvent) this.synth.buy();
     if (before.status !== this.status) {
       if (this.status === 'ended' && this.dead) this.synth.death();
       this.notify(this.snapshot());

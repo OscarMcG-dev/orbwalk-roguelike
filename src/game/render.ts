@@ -82,6 +82,7 @@ export function draw(sim: Simulation, canvas: HTMLCanvasElement, c: CanvasRender
   drawParticles(sim, c);
   drawEffects(sim, c);
   drawOverlays(sim, c, t);
+  drawHud(sim, c, t);
   drawCursor(sim, c, rs);
 }
 
@@ -1410,6 +1411,75 @@ function drawOverlays(sim: Simulation, c: CanvasRenderingContext2D, t: number) {
     c.fillStyle = g;
     c.fillRect(0, 0, W, H);
   }
+}
+
+/**
+ * In-arena vitals, bottom-left: health (with shield), gold and dash charges. The React metrics below the arena repeat
+ * these with more room, but at 720p they sit below the fold and in fullscreen they are not visible at all. Legible
+ * danger (pillar 4) means the player never has to look away from the fight to know how close to death they are.
+ */
+function drawHud(sim: Simulation, c: CanvasRenderingContext2D, t: number) {
+  if (!sim.isRun || sim.status === 'idle' || sim.status === 'ended') return;
+  const x = 34, y = H - 118, w = 300;
+  const frac = clamp(sim.hp / sim.stats.maxHp, 0, 1);
+  const low = frac < 0.35;
+  const hurt = sim.hurtFlash > 0;
+  const shieldFrac = sim.stats.shieldMax > 0 ? clamp(sim.shield / sim.stats.shieldMax, 0, 1) : 0;
+  c.save();
+  c.textAlign = 'left';
+  c.textBaseline = 'alphabetic';
+  // Plate.
+  c.fillStyle = '#0b141899';
+  c.beginPath(); c.roundRect(x - 14, y - 30, w + 28, 74, 8); c.fill();
+  // Health bar.
+  c.fillStyle = '#1a2a2a';
+  c.beginPath(); c.roundRect(x, y, w, 12, 4); c.fill();
+  const col = hurt ? '#ffffff' : low ? '#ff677d' : '#79f1cd';
+  c.fillStyle = col;
+  c.beginPath(); c.roundRect(x, y, Math.max(0, w * frac), 12, 4); c.fill();
+  if (shieldFrac > 0) {
+    c.fillStyle = '#9ff5ffcc';
+    c.beginPath(); c.roundRect(x, y - 4, w * shieldFrac, 3, 1.5); c.fill();
+  }
+  if (low && !sim.dead) {
+    // Low-health pulse on the bar edge, in step with the player's tremble.
+    c.strokeStyle = `rgba(255,103,125,${0.35 + 0.35 * Math.sin(t * 6)})`;
+    c.lineWidth = 2;
+    c.beginPath(); c.roundRect(x - 2, y - 2, w + 4, 16, 5); c.stroke();
+  }
+  // Numbers.
+  c.font = '600 20px ui-monospace, Consolas, monospace';
+  c.fillStyle = low ? '#ff9aa8' : '#e8efed';
+  c.fillText(`${Math.max(0, Math.ceil(sim.hp))}`, x, y - 10);
+  c.font = '12px ui-monospace, Consolas, monospace';
+  c.fillStyle = '#8fa2a5';
+  const hpText = `${Math.max(0, Math.ceil(sim.hp))}`;
+  c.fillText(`/ ${sim.stats.maxHp}${sim.shield > 0 ? `  +${Math.round(sim.shield)} shield` : ''}`, x + c.measureText(hpText).width * 1.6 + 6, y - 10);
+  // Gold, right-aligned on the plate.
+  c.textAlign = 'right';
+  c.font = '600 16px ui-monospace, Consolas, monospace';
+  c.fillStyle = '#ffd66b';
+  c.fillText(`◆ ${sim.gold}`, x + w, y - 10);
+  // Dash charges as pips under the bar; a filling pip while the next charge recharges.
+  c.textAlign = 'left';
+  const max = sim.stats.dashCharges, ready = sim.dashCharges;
+  for (let i = 0; i < max; i++) {
+    const px = x + i * 22, py = y + 28;
+    c.fillStyle = '#1a2a2a';
+    c.beginPath(); c.roundRect(px, py, 16, 6, 3); c.fill();
+    if (i < ready) {
+      c.fillStyle = '#9ff5ff';
+      c.beginPath(); c.roundRect(px, py, 16, 6, 3); c.fill();
+    } else if (i === ready && sim.stats.dashCd > 0) {
+      const f = clamp(1 - sim.dashCd / sim.stats.dashCd, 0, 1);
+      c.fillStyle = '#5aa7b0';
+      c.beginPath(); c.roundRect(px, py, 16 * f, 6, 3); c.fill();
+    }
+  }
+  c.font = '11px ui-monospace, Consolas, monospace';
+  c.fillStyle = '#8fa2a5';
+  c.fillText('E  DASH', x + max * 22 + 6, y + 34);
+  c.restore();
 }
 
 function drawCursor(sim: Simulation, c: CanvasRenderingContext2D, rs: RenderState) {

@@ -55,6 +55,7 @@ export function autopilotRun({ seed = 1, hero = 'marksman', difficulty = 'standa
       else if (pick.rarity === 'gold') out.golds++;
       else out.silvers++;
       s.choose(idx);
+      s.continueWave();
     } else if (s.status === 'running') {
       if (!s.target || s.target.dead) {
         const t = s.targetable().sort((a, b) => Math.hypot(a.x - s.player.x, a.y - s.player.y) - Math.hypot(b.x - s.player.x, b.y - s.player.y))[0];

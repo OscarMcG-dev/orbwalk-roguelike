@@ -73,7 +73,9 @@ src/game/audio.ts     procedural sound bank
 src/game/arena.ts     input, fixed-step loop with hit-stop, sound cue diffing
 src/game/webmcp.ts    optional WebMCP tool registration
 src/App.tsx           React shell, overlays, settings panel
+src/ui/ShopOverlay.tsx the intermission (draft, anvil, repair, reserve, departure); presentation only
 tests/                node:test suites run directly against the .ts sources
+docs/SYSTEM-MAP.md    per-system owners, update order, readers and tests (read this before searching)
 ```
 
 The simulation is deterministic (seeded PRNG) and renders nothing, so all mechanics are tested headlessly.
@@ -81,7 +83,7 @@ The simulation is deterministic (seeded PRNG) and renders nothing, so all mechan
 ## Develop and validate
 
 ```bash
-npm test          # 103 tests: original mechanics, roguelike loop, cues, classes, Arena draft, enemy pool, augment ecosystem, Skirmisher, mid-wave events, seeded economy pins
+npm test          # 136 tests: original mechanics, roguelike loop, cues, classes, Arena draft, enemy pool, augment ecosystem, Skirmisher, mid-wave events, seeded economy pins
 npm run typecheck
 npm run build
 ```

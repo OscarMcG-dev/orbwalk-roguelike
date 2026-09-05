@@ -218,7 +218,7 @@ test('Godmode Skirmisher autopilot reaches wave 9 with events firing along the w
   let elapsed = 0;
   while (s.wave < 9 && elapsed < 900) {
     s.hp = 1e9;
-    if (s.status === 'choosing') s.choose(0);
+    if (s.status === 'choosing') { s.choose(0); s.continueWave(); }
     else if (s.status === 'running') {
       const t = s.targetable().sort((a, b) => Math.hypot(a.x - s.player.x, a.y - s.player.y) - Math.hypot(b.x - s.player.x, b.y - s.player.y))[0];
       // Orbwalk: step, then throw, so Tempo actually fires.

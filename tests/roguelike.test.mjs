@@ -44,6 +44,8 @@ test('Clearing a wave pays a bonus, opens the upgrade shop, and choosing starts 
   assert.equal(s.status, 'choosing'); assert.equal(s.offers.length, 3);
   assert.equal(new Set(s.offers.map(o => o.id)).size, 3);
   const name = s.offers[0].name; s.choose(0);
+  assert.equal(s.status, 'choosing', 'claiming does not depart'); assert.equal(s.draftClaimed, true);
+  s.continueWave();
   assert.equal(s.status, 'running'); assert.equal(s.wave, 2); assert.equal(s.relics[0].name, name); assert.equal(s.relics[0].stacks, 1);
 });
 
@@ -171,7 +173,7 @@ test('Full autopilot run survives several waves with finite, consistent state', 
   let elapsed = 0;
   while (s.wave < 4 && elapsed < 240) {
     s.hp = 1e9; // godmode: we are testing the loop, not skill
-    if (s.status === 'choosing') s.choose(0);
+    if (s.status === 'choosing') { s.choose(0); s.continueWave(); }
     else if (s.status === 'running') {
       const t = s.targetable()[0];
       if (t && !s.target) s.attack(t);

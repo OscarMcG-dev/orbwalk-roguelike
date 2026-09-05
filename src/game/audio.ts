@@ -72,6 +72,8 @@ export class Synth {
   /** Low two-note warning: a champion (affixed enemy) has arrived. */
   champion() { this.tone(196, 0.22, { type: 'triangle', to: 196, gain: 0.04 }); this.tone(261, 0.28, { type: 'triangle', to: 261, gain: 0.04, delay: 0.16 }); }
   /** Reaver swing: a low whoosh. */
+  /** Coin on the counter: a paid intermission purchase landed. */
+  buy() { this.tone(980, 0.05, { type: 'triangle', to: 1240, gain: 0.03 }); this.noise(0.02, 0.02, { cutoff: 5000 }); }
   swing() { this.tone(240, 0.16, { type: 'sawtooth', to: 90, gain: 0.035 }); this.noise(0.14, 0.035); }
   death() { this.tone(220, 0.8, { type: 'sawtooth', to: 40, gain: 0.06 }); this.noise(0.5, 0.06); }
 

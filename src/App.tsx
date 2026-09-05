@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Crosshair, Expand, Heart, Lock, Pause, Play, RotateCcw, Shield, Skull, Sparkles, Volume2, VolumeX, Zap } from 'lucide-react';
+import { Crosshair, Expand, Lock, Pause, Play, RotateCcw, Shield, Skull, Sparkles, Volume2, VolumeX, Zap } from 'lucide-react';
 import { Arena } from './game/arena.ts';
 import { EMPTY_PROGRESS, HEROES, heroById, isUnlocked, type Progress } from './game/heroes.ts';
 import { registerTrainerTools } from './game/webmcp.ts';
-import { RARITY_LABEL, UPGRADES, baseStats } from './game/upgrades.ts';
+import { UPGRADES, baseStats } from './game/upgrades.ts';
 import { DEFAULT_PRESET, EASY_DEFAULT_LEVEL, EASY_MAX_LEVEL, easyBlend, matchPreset, normaliseTuning, presetById, sameTuning, type Tuning } from './game/tuning.ts';
 import type { HeroId, Settings, Snapshot } from './game/types.ts';
 import { Bar, Metric, Range, Segmented, Toggle } from './ui/controls.tsx';
 import { TuningPanel } from './ui/tuning.tsx';
+import { ShopOverlay } from './ui/ShopOverlay.tsx';
 
 const initial: Settings = {
   mode: 'run', drill: 'mixed', difficulty: 'standard', hero: 'marksman',
@@ -20,7 +21,7 @@ const empty: Snapshot = {
   phase: 'READY', progress: 1, streak: 0, best: 0, hp: 100, maxHp: 100, gold: 0, wave: 0, waveState: 'none',
   kills: 0, damageDealt: 0, enemiesLeft: 0, dashCd: 0, dashMax: 5, dashCharges: 1, dashMaxCharges: 1, offers: null, offerTier: 'mixed',
   rerollsLeft: 1, rerollCost: 0, healCost: 8, healUsed: false, anvil: [], anvilCost: 6, anvilLeft: 2, fourthCost: 10, fourthBought: false,
-  banishCost: 6, banishMode: false, ascendCost: 30, ascended: false, shards: {}, relics: [], questProgress: 0, questNeed: 0, questDone: false,
+  banishCost: 6, banishMode: false, ascendCost: 30, ascended: false, draftClaimed: false, claimedOffer: null, nextWave: 1, nextShopWave: 1, healAmount: 0, anvilPreview: [], shards: {}, relics: [], questProgress: 0, questNeed: 0, questDone: false,
   stats: baseStats(initial), heat: 0, momentum: 0, focus: 0, latched: 0, shield: 0, tempoReady: false, tempoShots: 0, ammo: 0, ammoMax: 0, reload: 0, crank: 1, event: null,
   enrageIn: 35, enrage: 0, cull: 0, dead: false, eliteHp: null,
 };
@@ -86,6 +87,8 @@ export default function App() {
     if (!canvas.current) return;
     const game = new Arena(canvas.current, initial, setStats);
     arena.current = game;
+    // Dev-only handle for driving the sim from the console or a browser test (window.__orbwalk.openShop()).
+    if (import.meta.env.DEV) (window as Window & { __orbwalk?: Arena }).__orbwalk = game;
     if (import.meta.env.DEV) (window as Window & { __arena?: Arena }).__arena = game;
     const cleanup = registerTrainerTools(game);
     setBest(loadJson<BestRun | null>(BEST_KEY, null));
@@ -132,7 +135,7 @@ export default function App() {
     <main>
       <header className="topbar">
         <a className="brand" href={import.meta.env.BASE_URL}><Crosshair size={25} /> ORBWALK<span className="brand-divider" /><span className="brand-sub">{run ? 'ROGUE' : 'MECHANICS LAB'}</span></a>
-        <div className="top-note"><i className={active ? 'live-dot' : 'idle-dot'} />{run ? 'PERMADEATH KITING RUN' : 'ADC TRAINING GROUND'} <span className="version">05 / LEDGER</span></div>
+        <div className="top-note"><i className={active ? 'live-dot' : 'idle-dot'} />{run ? 'PERMADEATH KITING RUN' : 'ADC TRAINING GROUND'} <span className="version">05 / {feel === 'easy' ? `EASY ${Math.round(easyLevel * 100)}%` : feel.toUpperCase()}</span></div>
       </header>
 
       <div className="workspace">
@@ -201,59 +204,7 @@ export default function App() {
               </div></div>
             )}
 
-            {stats.status === 'choosing' && stats.offers && (
-              <div className="start-overlay shop-overlay"><div className={`shop tier-${stats.offerTier}`}>
-                <div className="shop-head">
-                  <div>
-                    <div className="eyebrow">WAVE {stats.wave} CLEARED · {stats.offerTier === 'mixed' ? 'AUGMENT DRAFT' : `${RARITY_LABEL[stats.offerTier].toUpperCase()} DRAFT`}{stats.ascended && ' · ASCENDED'}</div>
-                    <h2>{stats.banishMode ? 'Banish which augment?' : 'Choose an augment'}</h2>
-                  </div>
-                  <div className="shop-status"><span className="gold">◆ {stats.gold}</span><span className={hpFrac < 0.35 ? 'hp low' : 'hp'}>♥ {stats.hp}/{stats.maxHp}</span></div>
-                </div>
-                <div className={`offers ${stats.banishMode ? 'banishing' : ''} ${stats.offers.length > 3 ? 'four' : ''}`}>
-                  {stats.offers.map((o, i) => (
-                    <button key={o.id} className={`offer ${o.rarity}`} style={{ animationDelay: `${i * 70}ms` }} onClick={() => g?.choose(i)}>
-                      <span className="offer-key">{i + 1}</span>
-                      {stats.banishMode && <span className="offer-banish">BANISH · {stats.banishCost} gold</span>}
-                      <span className="offer-icon">{o.icon}</span>
-                      <span className="offer-rarity">{RARITY_LABEL[o.rarity]}{o.stacks > 0 && ` · ${o.stacks}/${o.max}`}{o.quest && ' · quest'}{o.synergy && <em className="synergy">synergy</em>}</span>
-                      <strong>{o.name}</strong>
-                      {o.unlockedBy && <span className="offer-unlock">Unlocked by {o.unlockedBy}</span>}
-                      {o.heroOnly && <span className="offer-unlock">{heroById(o.heroOnly).name} only</span>}
-                      <p>{o.blurb}</p>
-                    </button>
-                  ))}
-                </div>
-                <div className="sinks">
-                  <button disabled={stats.fourthBought || stats.gold < stats.fourthCost} onClick={() => g?.buyFourth()} title="Reveal a fourth augment, Gold or better">
-                    <span className="offer-key">F</span><b>Fourth offer</b><small>{stats.fourthBought ? 'revealed' : `${stats.fourthCost} gold · Gold or better`}</small>
-                  </button>
-                  <button className={stats.banishMode ? 'armed' : ''} disabled={stats.gold < stats.banishCost} onClick={() => g?.toggleBanish()} title="Remove an augment from this run's pool for good and redraw the slot">
-                    <span className="offer-key">B</span><b>{stats.banishMode ? 'Cancel banish' : 'Banish'}</b><small>{stats.banishCost} gold · then pick 1-4</small>
-                  </button>
-                  <button disabled={stats.ascended || stats.gold < stats.ascendCost} onClick={() => g?.ascend()} title="The next shop is a Prismatic draft">
-                    <span className="offer-key">A</span><b>Ascend</b><small>{stats.ascended ? 'next draft is Prismatic' : `${stats.ascendCost} gold · next shop Prismatic`}</small>
-                  </button>
-                </div>
-                <div className="anvil">
-                  <div className="anvil-head"><span className="eyebrow">STAT ANVIL</span><span className="anvil-cost">{stats.anvilCost} gold · {stats.anvilLeft} of 2 left this shop · keys 7-9</span></div>
-                  <div className="shards">
-                    {stats.anvil.length === 0 && <span className="anvil-empty">Anvil spent for this wave.</span>}
-                    {stats.anvil.length > 0 && stats.anvilLeft === 0 && <span className="anvil-empty">Two shards a shop. The price climbs for the whole run.</span>}
-                    {stats.anvil.map((s, i) => (
-                      <button key={s.key} disabled={stats.gold < stats.anvilCost || stats.anvilLeft === 0} onClick={() => g?.buyShard(i)}>
-                        <span className="offer-key">{i + 7}</span>
-                        <i>{s.icon}</i><b>{s.name}</b><small>{s.display}</small>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="shop-actions">
-                  <button disabled={stats.rerollCost > 0 && stats.gold < stats.rerollCost} onClick={() => g?.reroll()}><Sparkles size={15} />Reroll <kbd>R</kbd><em>{stats.rerollCost === 0 ? `${stats.rerollsLeft} free` : `${stats.rerollCost} gold`}</em></button>
-                  <button disabled={stats.healUsed || stats.gold < stats.healCost || stats.hp >= stats.maxHp} onClick={() => g?.buyHeal()}><Heart size={15} />Heal 35% <kbd>H</kbd><em>{stats.healUsed ? 'used' : `${stats.healCost} gold`}</em></button>
-                </div>
-              </div></div>
-            )}
+            {stats.status === 'choosing' && <ShopOverlay snap={stats} game={g} />}
 
             <div className="arena-bottom">
               <span><i className="legend cyan" />YOU<i className="legend amber" />{run ? 'GOLD' : 'TARGET'}<i className="legend red" />DANGER{run && <><i className="legend violet" />ENEMY</>}</span>

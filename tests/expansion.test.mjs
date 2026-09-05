@@ -299,7 +299,7 @@ test('Godmode autopilot survives to wave 10 with every new enemy type in play', 
   const seen = new Set(); let elapsed = 0, planted = false;
   while (s.wave < 10 && elapsed < 900) {
     s.hp = 1e9; s.shield = 0;
-    if (s.status === 'choosing') s.choose(0);
+    if (s.status === 'choosing') { s.choose(0); s.continueWave(); }
     else if (s.status === 'running') {
       for (const e of s.enemies) if (!e.dead) { seen.add(e.kind); if (e.kind === 'bulwark' && e.pattern === 1) planted = true; }
       // Prefer whatever is shootable right now: not a planted Bulwark facing us.

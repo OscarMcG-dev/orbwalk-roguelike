@@ -296,6 +296,15 @@ export type Snapshot = {
   banishMode: boolean;
   ascendCost: number;
   ascended: boolean;
+  /** Intermission: claim and departure are separate. `nextShopWave` follows the shopEvery cadence. */
+  draftClaimed: boolean;
+  claimedOffer: Offer | null;
+  nextWave: number;
+  nextShopWave: number;
+  /** HP the field repair would restore right now. */
+  healAmount: number;
+  /** Derived before/after for each anvil shard's stat, in the same order as `anvil`. */
+  anvilPreview: { key: ShardKey; before: number; after: number }[];
   shards: Shards;
   relics: Relic[];
   questProgress: number;

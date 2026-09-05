@@ -174,7 +174,7 @@ test('Shop sinks: Fourth Offer draws a tier up, Banish removes an augment for th
   assert.equal(s.ascendCost, 38);
   s.ascend(); assert.equal(s.gold, 42); assert.equal(s.ascendNext, true);
   s.ascend(); assert.equal(s.gold, 42, 'once per shop');
-  s.choose(0); s.enemies = []; s.spawnQueue = []; s.waveState = 'fighting'; tick(s, 1.6);
+  s.choose(0); s.continueWave(); s.enemies = []; s.spawnQueue = []; s.waveState = 'fighting'; tick(s, 1.6);
   assert.equal(s.status, 'choosing'); assert.equal(s.offerTier, 'prismatic'); assert.ok(s.offers.every(o => o.rarity === 'prismatic'));
   assert.equal(s.ascendNext, false);
 });
@@ -218,7 +218,7 @@ test('Executioner finishes low non-elite enemies; Slow Cooker burns over time', 
 test('Twin Step grants two charges with a slower recharge; Vow completes after 25 kills', () => {
   const s = setup(); s.status = 'choosing';
   s.offers = [{ id: 'twin', name: 'Twin Step', blurb: '', rarity: 'prismatic', icon: '', stacks: 0, max: 1, synergy: false }];
-  s.choose(0);
+  s.choose(0); s.continueWave();
   assert.equal(s.stats.dashCharges, 2); assert.equal(s.dashCharges, 2); assert.equal(s.stats.dashCd, 6);
   s.dash({ x: 1200, y: 520 }); tick(s, 0.2); s.dash({ x: 1200, y: 520 });
   assert.equal(s.dashCharges, 0);

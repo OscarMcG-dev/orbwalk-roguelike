@@ -12,6 +12,11 @@ const DASH_TIME = 0.15;
 const DASH_SPEED = 1300;
 const SPAWN_TIME = 0.7;
 const MAX_PARTICLES = 700;
+/**
+ * Salt that derives the cosmetic RNG seed from the gameplay seed at start(). Particles, dust and damage-text jitter
+ * draw from `fx`, never from `rng`, so a feel setting cannot move a spawn, affix, event or draft roll.
+ */
+export const FX_SEED_SALT = 0x9e3779b9;
 const HEAT_MAX = 4;
 const MOMENTUM_MAX = 20;
 const FOCUS_MAX = 10;
@@ -101,6 +106,8 @@ export class Simulation {
   tuning: Tuning = { ...DEFAULT_TUNING };
   status: Status = 'idle';
   rng = new Rng(7);
+  /** Cosmetic-only RNG. Reseeded from `rng.seed ^ FX_SEED_SALT` in start(); see FX_SEED_SALT. */
+  fx = new Rng(7 ^ 0x9e3779b9);
 
   // clock
   elapsed = 0;
@@ -192,6 +199,9 @@ export class Simulation {
   /** Ascend: the next shop is a Prismatic draft. */
   ascendNext = false;
   ascended = false;
+  /** Intermission: the free draft has been claimed; the player departs explicitly with continueWave(). */
+  draftClaimed = false;
+  claimedOffer: Offer | null = null;
   /** Affix marble bag so champions never streak one affix. */
   affixBag: Affix[] = [];
 
@@ -275,6 +285,8 @@ export class Simulation {
   pingEvent = 0;
   rackEvent = 0;
   loadedEvent = 0;
+  /** Any paid intermission purchase (anvil, heal, fourth offer, banish, Ascend) landed. */
+  buyEvent = 0;
 
   constructor(settings: Settings) {
     this.settings = { ...settings };
@@ -387,6 +399,8 @@ export class Simulation {
 
   start() {
     this.status = 'running';
+    // Derive the cosmetic stream from the gameplay seed without consuming a gameplay draw.
+    this.fx = new Rng(this.rng.seed ^ FX_SEED_SALT);
     this.elapsed = 0;
     this.runTime = 0;
     this.player = { x: 650, y: 520 };
@@ -444,6 +458,8 @@ export class Simulation {
     this.fourthBought = false;
     this.ascendNext = false;
     this.ascended = false;
+    this.draftClaimed = false;
+    this.claimedOffer = null;
     this.affixBag = [];
     this.shield = 0;
     this.drainAcc = 0;
@@ -501,11 +517,11 @@ export class Simulation {
     if (this.particles.length > MAX_PARTICLES) return;
     count = Math.round(count * this.tuning.particles);
     for (let i = 0; i < count; i++) {
-      const a = this.rng.range(0, Math.PI * 2), v = speed * this.rng.range(0.35, 1);
-      const life = this.rng.range(0.3, 0.75);
+      const a = this.fx.range(0, Math.PI * 2), v = speed * this.fx.range(0.35, 1);
+      const life = this.fx.range(0.3, 0.75);
       this.particles.push({
         x: p.x, y: p.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life, max: life,
-        size: size * this.rng.range(0.6, 1.4), color, drag: 3.2, shape, rot: a, spin: this.rng.range(-12, 12),
+        size: size * this.fx.range(0.6, 1.4), color, drag: 3.2, shape, rot: a, spin: this.fx.range(-12, 12),
       });
     }
   }
@@ -513,12 +529,12 @@ export class Simulation {
   /** Footstep dust kicked up behind the player while running. */
   puff() {
     if (this.particles.length > MAX_PARTICLES) return;
-    const back = this.angle + Math.PI, side = this.rng.range(-0.6, 0.6);
+    const back = this.angle + Math.PI, side = this.fx.range(-0.6, 0.6);
     this.particles.push({
       x: this.player.x + Math.cos(back) * 12 + Math.cos(back + Math.PI / 2) * side * 10,
       y: this.player.y + Math.sin(back) * 12 + Math.sin(back + Math.PI / 2) * side * 10,
       vx: Math.cos(back + side) * 40, vy: Math.sin(back + side) * 40, life: 0.45, max: 0.45,
-      size: this.rng.range(2.5, 4.5), color: '#9fb8b4', drag: 2, shape: 'dot', rot: 0, spin: 0,
+      size: this.fx.range(2.5, 4.5), color: '#9fb8b4', drag: 2, shape: 'dot', rot: 0, spin: 0,
     });
   }
 
@@ -613,7 +629,7 @@ export class Simulation {
       this.pingEvent++;
       this.effect({ x: this.player.x, y: this.player.y - 14 }, '#ffe9a8', 'PING', 15);
       // The en-bloc clip: one brass shard tossed up and away.
-      this.particles.push({ x: this.player.x + 8, y: this.player.y - 6, vx: 120 + this.rng.range(0, 60), vy: -260, life: 0.7, max: 0.7, size: 5, color: '#ffd27a', drag: 1.2, shape: 'shard', rot: 0, spin: 14 });
+      this.particles.push({ x: this.player.x + 8, y: this.player.y - 6, vx: 120 + this.fx.range(0, 60), vy: -260, life: 0.7, max: 0.7, size: 5, color: '#ffd27a', drag: 1.2, shape: 'shard', rot: 0, spin: 14 });
     } else {
       this.rackEvent++;
       this.effect({ x: this.player.x, y: this.player.y - 14 }, '#ffe9a8', 'RELOAD', 13);
@@ -1051,6 +1067,8 @@ export class Simulation {
     this.fourthBought = false;
     this.banishMode = false;
     this.ascended = false;
+    this.draftClaimed = false;
+    this.claimedOffer = null;
     this.offerTier = this.ascendNext ? 'prismatic' : offerTier(this.wave);
     // Pin the hidden first-Prismatic guarantee to the first shop that actually opens on or after its wave.
     if (!this.guaranteePinned && this.wave >= this.firstPrismaticWave) {
@@ -1066,26 +1084,30 @@ export class Simulation {
 
   /** Fourth Offer: pay to reveal one more augment, Gold or better. Its rarity still comes from the bag, so it is never a cheap Prismatic. */
   buyFourth() {
-    if (this.status !== 'choosing' || !this.offers || this.fourthBought || this.gold < this.fourthCost) return;
+    if (this.status !== 'choosing' || !this.offers || this.draftClaimed || this.fourthBought || this.gold < this.fourthCost) return;
     const floor = this.offerTier === 'prismatic' ? 'prismatic' : 'gold';
     const u = this.drawAugment(this.resolveRarity(this.drawRarity(), floor), this.offers);
     if (!u) return;
     this.gold -= this.fourthCost;
     this.fourthBought = true;
+    this.buyEvent++;
     this.offers.push(this.toOffer(u));
   }
 
   toggleBanish() {
     if (this.status !== 'choosing') return;
-    this.banishMode = !this.banishMode;
+    if (this.banishMode) { this.banishMode = false; return; }
+    if (this.draftClaimed || this.gold < this.banishCost) return;
+    this.banishMode = true;
   }
 
   /** Banish: remove an offer from the run's pool for good and redraw that slot. Cheap on purpose: it is the answer to a dry shop. */
   banish(index: number) {
-    if (this.status !== 'choosing' || !this.offers || this.gold < this.banishCost) return;
+    if (this.status !== 'choosing' || !this.offers || this.draftClaimed || this.gold < this.banishCost) return;
     const offer = this.offers[index];
     if (!offer) return;
     this.gold -= this.banishCost;
+    this.buyEvent++;
     this.banished.add(offer.id);
     this.banishMode = false;
     const rest = this.offers.filter((_, i) => i !== index);
@@ -1100,14 +1122,17 @@ export class Simulation {
     this.gold -= this.ascendCost;
     this.ascendNext = true;
     this.ascended = true;
+    this.buyEvent++;
   }
 
+  /** Claim the free draft. Applies exactly one reward and leaves the intermission open; continueWave() departs. */
   choose(index: number) {
     if (this.status !== 'choosing' || !this.offers) return;
     if (this.banishMode) {
       this.banish(index);
       return;
     }
+    if (this.draftClaimed) return;
     const offer = this.offers[index];
     if (!offer) return;
     const def = UPGRADES.find(u => u.id === offer.id)!;
@@ -1116,17 +1141,47 @@ export class Simulation {
     else this.relics.push({ id: def.id, name: def.name, stacks: 1, rarity: def.rarity, icon: def.icon, tags: def.tags });
     if (def.quest) this.questProgress = 0;
     this.recomputeStats();
-    this.offers = null;
-    this.status = 'running';
+    this.draftClaimed = true;
+    this.claimedOffer = { ...offer, stacks: existing ? existing.stacks : 1 };
+    this.banishMode = false;
     this.upgradeEvent++;
     this.effect(this.player, '#ffe9a8', def.name.toUpperCase(), 22);
     this.burst(this.player, def.rarity === 'prismatic' ? '#d79bff' : def.rarity === 'gold' ? '#ffd66b' : '#ffe9a8', def.rarity === 'prismatic' ? 50 : 26, 260, 'dot', 3);
+  }
+
+  /** Depart the intermission. Only after the draft is claimed; begins exactly one wave and is inert afterwards. */
+  continueWave() {
+    if (this.status !== 'choosing' || !this.draftClaimed) return;
+    this.offers = null;
+    this.banishMode = false;
+    this.status = 'running';
     this.beginWave(this.wave + 1);
+  }
+
+  /** First wave after the current one whose clear opens a draft, from the actual shop cadence. */
+  get nextShopWave() {
+    const every = Math.max(1, Math.round(this.tuning.shopEvery));
+    let w = this.wave + 1;
+    while (w % every !== 0) w++;
+    return w;
+  }
+
+  /** HP a field repair would actually restore right now (35 percent of max, capped at the missing amount). */
+  get healAmount() {
+    return Math.max(0, Math.min(Math.round(this.stats.maxHp * 0.35), Math.ceil(this.stats.maxHp - this.hp)));
+  }
+
+  /** Before/after of the one stat each anvil shard moves, derived by the real stat pipeline. */
+  anvilPreview() {
+    return this.anvil.map(s => {
+      const after = computeStats(this.settings, this.relics, { ...this.shards, [s.key]: (this.shards[s.key] ?? 0) + 1 }, this.questDone, this.tuning);
+      return { key: s.key, before: this.stats[s.key], after: after[s.key] };
+    });
   }
 
   /** Reroll the draft: one free per run, then 4, 8, 16 gold within a shop. A purchased fourth offer is kept. */
   reroll() {
-    if (this.status !== 'choosing' || !this.offers) return;
+    if (this.status !== 'choosing' || !this.offers || this.draftClaimed) return;
     const cost = this.rerollCost;
     if (cost > 0 && this.gold < cost) return;
     if (cost > 0) {
@@ -1142,6 +1197,7 @@ export class Simulation {
     if (this.status !== 'choosing' || this.healedThisShop || this.gold < this.healCost || this.hp >= this.stats.maxHp) return;
     this.gold -= this.healCost;
     this.healedThisShop = true;
+    this.buyEvent++;
     this.hp = Math.min(this.stats.maxHp, this.hp + Math.round(this.stats.maxHp * 0.35));
   }
 
@@ -1151,6 +1207,7 @@ export class Simulation {
     if (!shard || this.gold < this.anvilCost) return;
     this.gold -= this.anvilCost;
     this.anvilBought++;
+    this.buyEvent++;
     this.anvilBoughtThisShop++;
     this.shardsBought++;
     this.shards[shard.key] = (this.shards[shard.key] ?? 0) + 1;
@@ -1468,7 +1525,7 @@ export class Simulation {
     e.flash = 0.17;
     if (e.invulnerable && e.kind !== 'dummy') {
       // Warded champions shrug bolts off entirely while the ward is up.
-      this.effect({ x: e.x + this.rng.range(-10, 10), y: e.y - 10 }, AFFIX_COLORS.warded, 'WARDED', 15);
+      this.effect({ x: e.x + this.fx.range(-10, 10), y: e.y - 10 }, AFFIX_COLORS.warded, 'WARDED', 15);
       this.burst(e, AFFIX_COLORS.warded, 5, 140, 'dot', 2);
       return;
     }
@@ -1481,7 +1538,7 @@ export class Simulation {
       color = '#ff5c8a';
       size = 20;
     }
-    this.effect({ x: e.x + this.rng.range(-10, 10), y: e.y - 10 }, color, text, size);
+    this.effect({ x: e.x + this.fx.range(-10, 10), y: e.y - 10 }, color, text, size);
     this.burst(e, crit ? '#ffe37a' : ENEMY_COLORS[e.kind], crit ? 8 : 4, 160, 'dot', 2.5);
     if (e.invulnerable) return;
     e.hp -= dmg;
@@ -1624,7 +1681,7 @@ export class Simulation {
       const tick = 4 * e.burn * dt;
       e.hp -= tick;
       this.damageDealt += tick;
-      if (this.rng.next() < dt * 6) this.burst(e, '#ff9a4a', 1, 60, 'dot', 2);
+      if (this.fx.next() < dt * 6) this.burst(e, '#ff9a4a', 1, 60, 'dot', 2);
       if (e.burnTime <= 0) e.burn = 0;
       if (e.hp <= 0) {
         this.kill(e);
@@ -2385,6 +2442,12 @@ export class Simulation {
       banishMode: this.banishMode,
       ascendCost: this.ascendCost,
       ascended: this.ascended || this.ascendNext,
+      draftClaimed: this.draftClaimed,
+      claimedOffer: this.claimedOffer,
+      nextWave: this.wave + 1,
+      nextShopWave: this.nextShopWave,
+      healAmount: this.healAmount,
+      anvilPreview: this.status === 'choosing' ? this.anvilPreview() : [],
       shards: { ...this.shards },
       relics: this.relics.map(r => ({ ...r })),
       questProgress: this.questProgress,
