@@ -4,6 +4,8 @@ import type { HeroId, Settings, Stats } from './types.ts';
 export type Progress = { bestWave: number; totalKills: number; runs: number };
 export const EMPTY_PROGRESS: Progress = { bestWave: 0, totalKills: 0, runs: 0 };
 
+export type Weapon = 'bow' | 'cannon' | 'blade' | 'crossbow' | 'garand' | 'pistols';
+
 export type Hero = {
   id: HeroId;
   name: string;
@@ -21,7 +23,15 @@ export type Hero = {
   tempo: boolean;
   /** Skirmisher blade dash: enemies passed through during a dash are cut once each. */
   dashStrike: boolean;
-  weapon: 'bow' | 'cannon' | 'blade';
+  /** Magazine weapons: `size` shots, then `reload` seconds during which you may move but not fire. `ping` is the Garand's en-bloc clip. */
+  magazine?: { size: number; reload: number; ping: boolean };
+  /** Crank weapons: firing spends the crank and only this many units of walking rewinds it. */
+  crank?: number;
+  /** Piercing shots fly straight and pass through up to this many enemies, losing 15% per body. */
+  pierce?: number;
+  /** Off-hand weapon: every attack also fires at the nearest other enemy in range for this fraction of the damage. */
+  offhand?: number;
+  weapon: Weapon;
   colors: { skin: string; trim: string; dark: string; cape: string; capeTrim: string; bolt: string };
   unlock: { desc: string; check: (p: Progress) => boolean };
 };
@@ -43,6 +53,23 @@ export const HEROES: Hero[] = [
     unlock: { desc: 'Available from the start.', check: () => true },
   },
   {
+    id: 'arbalest',
+    name: 'Arbalest',
+    title: 'Heavy crossbow',
+    blurb: 'One quarrel, one line: it punches through up to four enemies. Firing spends the crank, and only walking rewinds it (90 units). Aim long, then run.',
+    profile: { attackSpeed: 0.55, windup: 32, moveSpeed: 300, range: 640 },
+    stats: { damage: 62, maxHp: 110, dashCd: 4.2, critChance: 0.06 },
+    dashMode: 'toward',
+    heat: false,
+    tempo: false,
+    dashStrike: false,
+    crank: 90,
+    pierce: 4,
+    weapon: 'crossbow',
+    colors: { skin: '#7d9bc7', trim: '#e3ecff', dark: '#1d2a44', cape: '#3a4f80', capeTrim: '#9fb8e8', bolt: '#dfe9ff' },
+    unlock: { desc: 'Reach wave 2 in any run.', check: p => p.bestWave >= 2 },
+  },
+  {
     id: 'cannoneer',
     name: 'Cannoneer',
     title: 'Heavy ordnance',
@@ -58,6 +85,22 @@ export const HEROES: Hero[] = [
     unlock: { desc: 'Reach wave 4 in any run.', check: p => p.bestWave >= 4 },
   },
   {
+    id: 'rifleman',
+    name: 'Rifleman',
+    title: 'M1 Garand',
+    blurb: 'Eight rounds, semi-automatic, hard-hitting. The empty clip leaves with a PING and 1.6 s of reload you spend moving. R ejects the clip early.',
+    profile: { attackSpeed: 1.6, windup: 10, moveSpeed: 315, range: 540 },
+    stats: { damage: 26, maxHp: 100, critChance: 0.08 },
+    dashMode: 'toward',
+    heat: false,
+    tempo: false,
+    dashStrike: false,
+    magazine: { size: 8, reload: 1.6, ping: true },
+    weapon: 'garand',
+    colors: { skin: '#9aa86a', trim: '#eef2d6', dark: '#2e3319', cape: '#5d6b34', capeTrim: '#c8d48a', bolt: '#fff1b8' },
+    unlock: { desc: 'Reach wave 3 in any run.', check: p => p.bestWave >= 3 },
+  },
+  {
     id: 'skirmisher',
     name: 'Skirmisher',
     title: 'Blades at close quarters',
@@ -71,6 +114,23 @@ export const HEROES: Hero[] = [
     weapon: 'blade',
     colors: { skin: '#ff6b7f', trim: '#ffe3e8', dark: '#3a1420', cape: '#a3283f', capeTrim: '#ff9fb0', bolt: '#ffd0d8' },
     unlock: { desc: 'Reach 200 career kills.', check: p => p.totalKills >= 200 },
+  },
+  {
+    id: 'gunslinger',
+    name: 'Gunslinger',
+    title: 'Twin Berettas',
+    blurb: 'Two pistols, fifteen rounds each, alternating hands. The off hand fires at a second enemy in reach for 60% damage. Thirty rounds, then a 1.1 s reload (R reloads early). Short reach, quick feet.',
+    profile: { attackSpeed: 2.3, windup: 9, moveSpeed: 345, range: 310 },
+    stats: { damage: 9, maxHp: 95, dashCd: 3.4, critChance: 0.08 },
+    dashMode: 'toward',
+    heat: false,
+    tempo: false,
+    dashStrike: false,
+    magazine: { size: 30, reload: 1.1, ping: false },
+    offhand: 0.6,
+    weapon: 'pistols',
+    colors: { skin: '#c9a36b', trim: '#fff3dc', dark: '#2b2118', cape: '#6b4a2b', capeTrim: '#e8c98f', bolt: '#ffe8a8' },
+    unlock: { desc: 'Reach 150 career kills.', check: p => p.totalKills >= 150 },
   },
 ];
 

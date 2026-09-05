@@ -21,7 +21,7 @@ const arenaWith = (kinds, patch = {}) => {
 // ---------------------------------------------------------------- skirmisher
 
 test('Skirmisher unlocks at 200 career kills and layers a close-range, fast, fragile sheet', () => {
-  assert.equal(HEROES.length, 3);
+  assert.equal(HEROES.length, 6);
   assert.equal(isUnlocked('skirmisher', { bestWave: 12, totalKills: 199, runs: 9 }), false);
   assert.equal(isUnlocked('skirmisher', { bestWave: 1, totalKills: 200, runs: 1 }), true);
   const h = heroById('skirmisher');

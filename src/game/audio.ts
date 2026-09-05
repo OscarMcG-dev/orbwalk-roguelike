@@ -25,7 +25,7 @@ export class Synth {
     o.stop(t0 + duration);
   }
 
-  noise(duration: number, gain = 0.05) {
+  noise(duration: number, gain = 0.05, opts: { delay?: number; cutoff?: number } = {}) {
     if (!this.enabled || !this.ctx) return;
     const buffer = this.ctx.createBuffer(1, Math.ceil(this.ctx.sampleRate * duration), this.ctx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -33,13 +33,28 @@ export class Synth {
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain(), f = this.ctx.createBiquadFilter();
     src.buffer = buffer;
     f.type = 'lowpass';
-    f.frequency.value = 1400;
+    f.frequency.value = opts.cutoff ?? 1400;
     g.gain.value = gain;
     src.connect(f); f.connect(g); g.connect(this.ctx.destination);
-    src.start();
+    src.start(this.ctx.currentTime + (opts.delay ?? 0));
   }
 
-  shot() { this.tone(850, 0.08); }
+  /** Per-weapon report. `n` is the running shot count so the pistols alternate hands. */
+  shot(weapon = 'bow', n = 0) {
+    switch (weapon) {
+      case 'crossbow': this.tone(170, 0.14, { type: 'triangle', to: 55, gain: 0.07 }); this.noise(0.09, 0.05, { cutoff: 900 }); break;
+      case 'garand': this.tone(950, 0.07, { type: 'square', to: 160, gain: 0.05 }); this.noise(0.11, 0.07, { cutoff: 2600 }); this.tone(320, 0.12, { type: 'triangle', to: 120, gain: 0.03, delay: 0.02 }); break;
+      case 'pistols': this.tone(n % 2 ? 1350 : 1150, 0.05, { type: 'square', to: 260, gain: 0.035 }); this.noise(0.05, 0.04, { cutoff: 3200 }); break;
+      case 'cannon': this.tone(420, 0.12, { type: 'triangle', to: 120, gain: 0.05 }); this.noise(0.1, 0.04); break;
+      default: this.tone(850, 0.08);
+    }
+  }
+  /** The Garand's en-bloc clip: a bright ringing ping. */
+  ping() { this.tone(3350, 0.55, { to: 3250, gain: 0.045 }); this.tone(5200, 0.4, { to: 5050, gain: 0.02, delay: 0.004 }); this.noise(0.025, 0.03, { cutoff: 6000 }); }
+  /** Pistol reload: two clicks of a slide racked. */
+  rack() { this.noise(0.035, 0.05, { cutoff: 2400 }); this.tone(620, 0.035, { type: 'square', to: 480, gain: 0.025 }); this.noise(0.035, 0.05, { delay: 0.11, cutoff: 2400 }); this.tone(760, 0.04, { type: 'square', to: 600, gain: 0.025, delay: 0.11 }); }
+  /** A clip seated or a crank fully wound. */
+  loaded() { this.tone(1100, 0.05, { type: 'square', to: 1500, gain: 0.02 }); this.tone(1600, 0.06, { to: 1900, gain: 0.02, delay: 0.05 }); }
   hurt() { this.tone(150, 0.18, { type: 'square', gain: 0.05 }); this.noise(0.12, 0.04); }
   kill() { this.tone(520, 0.12, { type: 'triangle', to: 180, gain: 0.05 }); this.noise(0.08, 0.03); }
   pickup() { this.tone(1200, 0.07, { to: 1800, gain: 0.03 }); this.tone(1600, 0.09, { to: 2400, gain: 0.025, delay: 0.05 }); }

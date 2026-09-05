@@ -132,18 +132,39 @@ export const TUNING_PRESETS: TuningPreset[] = [
   },
   {
     id: 'easy', name: 'Easy', tag: 'C',
-    blurb: 'Halfway back toward the old kite: more reach and speed, gentler enemies, a draft every wave. For learning the rhythm.',
+    blurb: 'Room to learn the rhythm: full speed and near-full reach, slower and softer enemies with longer warnings, a draft every wave, and a firmer shove on every hit.',
     tuning: {
       ...DEFAULT_TUNING,
-      playerMove: 0.9, playerAttackSpeed: 0.85, playerWindup: 1, playerRange: 0.8,
-      enemySpeed: 1, enemyHp: 1.1, enemyDamage: 1.15, projectileSpeed: 1.2, telegraph: 0.85,
-      augmentPower: 0.9, shopEvery: 1, bagSilver: 16, bagGold: 6, bagPrismatic: 1,
+      playerMove: 1, playerAttackSpeed: 1, playerWindup: 1, playerRange: 0.9,
+      enemySpeed: 0.9, enemyHp: 0.85, enemyDamage: 0.8, projectileSpeed: 1, telegraph: 1.15,
+      augmentPower: 1, shopEvery: 1, bagSilver: 13, bagGold: 6, bagPrismatic: 1,
+      knockback: 1.4, stagger: 1.4,
     },
   },
 ];
 
 /** What a fresh install plays. */
 export const DEFAULT_PRESET = 'iron';
+
+/** Where the Easy pressure slider starts (0 is the Easy floor, 1 is Iron). */
+export const EASY_DEFAULT_LEVEL = 0.4;
+/** The slider stops short of 1 so Easy never silently becomes Iron. */
+export const EASY_MAX_LEVEL = 0.9;
+
+/**
+ * Easy mode's pressure slider: every knob moves `level` of the way from the Easy floor to Iron. Counts
+ * round to whole marbles; the draft cadence flips to every second wave past 60 percent.
+ */
+export function easyBlend(level: number): Tuning {
+  const t = Math.min(EASY_MAX_LEVEL, Math.max(0, level));
+  const lo = TUNING_PRESETS.find(p => p.id === 'easy')!.tuning, hi = TUNING_PRESETS.find(p => p.id === 'iron')!.tuning;
+  const out = { ...lo };
+  for (const k of Object.keys(DEFAULT_TUNING) as TuningKey[]) {
+    const v = lo[k] + (hi[k] - lo[k]) * t;
+    out[k] = k === 'shopEvery' ? (t >= 0.6 ? hi[k] : lo[k]) : k.startsWith('bag') ? Math.round(v) : Math.round(v * 1000) / 1000;
+  }
+  return out;
+}
 
 export const presetById = (id: string) => TUNING_PRESETS.find(p => p.id === id) ?? TUNING_PRESETS[0];
 

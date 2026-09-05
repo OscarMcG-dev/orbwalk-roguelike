@@ -153,6 +153,11 @@ export class Arena extends Simulation {
       this.dash(this.inside ? this.cursor : this.player);
       return;
     }
+    if (code === 'KeyR') {
+      e.preventDefault();
+      this.reload();
+      return;
+    }
     if (code === 'Escape') {
       e.preventDefault();
       if (this.armed) this.armed = false;
@@ -244,7 +249,7 @@ export class Arena extends Simulation {
       shot: this.shotEvent, hit: this.hitEvent, kill: this.killEvent, pickup: this.pickupEvent,
       wave: this.waveEvent, dash: this.dashEvent, upgrade: this.upgradeEvent, status: this.status,
       ready: this.dashReadyEvent, quest: this.questEvent, block: this.blockEvent, champion: this.championEvent,
-      event: this.eventEvent, cut: this.cutEvent, swing: this.swingEvent,
+      event: this.eventEvent, cut: this.cutEvent, swing: this.swingEvent, ping: this.pingEvent, rack: this.rackEvent, loaded: this.loadedEvent,
     };
     let steps = 0;
     while (this.acc >= STEP && steps < 12) {
@@ -255,7 +260,10 @@ export class Arena extends Simulation {
     if (steps === 12) this.acc = 0;
 
     const stop = (s: number) => { this.hitStop = Math.max(this.hitStop, s * this.tuning.hitStop); };
-    if (before.shot !== this.shotEvent) this.synth.shot();
+    if (before.shot !== this.shotEvent) this.synth.shot(this.hero.weapon, this.attackCount);
+    if (before.ping !== this.pingEvent) { this.synth.ping(); stop(0.05); }
+    if (before.rack !== this.rackEvent) this.synth.rack();
+    if (before.loaded !== this.loadedEvent) this.synth.loaded();
     if (before.hit !== this.hitEvent) { this.synth.hurt(); stop(0.09); }
     if (before.kill !== this.killEvent) { this.synth.kill(); stop(0.035); }
     if (before.pickup !== this.pickupEvent) this.synth.pickup();

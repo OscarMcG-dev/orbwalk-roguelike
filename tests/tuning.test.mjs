@@ -133,12 +133,10 @@ test('Presets: Iron is exactly the feel Oscar chose after AB-001, and it is the 
   assert.equal(matchPreset(b)?.id, 'iron');
   assert.equal(matchPreset({ ...b, enemySpeed: 1.21 }), null);
   assert.equal(TUNING_PRESETS.length, 3);
-  // Easy sits between Ledger (all 1) and Iron on every continuous knob, drafts every wave, and keeps the 1-Prismatic bag.
+  // Easy is the gentle floor of the pressure slider: softer than the authored scale on the enemy side, a draft every wave, the 1-Prismatic bag.
   const a = presetById('ledger').tuning, c = presetById('easy').tuning;
-  for (const k of ['playerMove', 'playerAttackSpeed', 'playerRange', 'enemyHp', 'enemyDamage', 'projectileSpeed', 'telegraph', 'augmentPower']) {
-    const lo = Math.min(a[k], b[k]), hi = Math.max(a[k], b[k]);
-    assert.ok(c[k] >= lo - 1e-9 && c[k] <= hi + 1e-9, `${k}: easy ${c[k]} outside [${lo}, ${hi}]`);
-  }
+  assert.ok(c.enemyDamage < a.enemyDamage && c.enemyHp < a.enemyHp && c.enemySpeed < a.enemySpeed && c.telegraph > a.telegraph);
+  assert.ok(c.playerMove >= 1 && c.playerAttackSpeed >= 1 && c.playerRange <= 1 && c.playerRange >= b.playerRange);
   assert.equal(c.shopEvery, 1); assert.equal(c.bagPrismatic, 1);
   assert.equal(matchPreset(c)?.id, 'easy');
   // normalise: fills gaps, clamps to the slider ranges, ignores junk.

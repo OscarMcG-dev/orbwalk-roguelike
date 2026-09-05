@@ -55,7 +55,7 @@ test('Cannoneer is locked until wave 4 has been reached; Marksman is always open
   assert.equal(isUnlocked('marksman', { bestWave: 0, totalKills: 0, runs: 0 }), true);
   assert.equal(isUnlocked('cannoneer', { bestWave: 3, totalKills: 50, runs: 5 }), false);
   assert.equal(isUnlocked('cannoneer', { bestWave: 4, totalKills: 0, runs: 1 }), true);
-  assert.equal(HEROES.length, 3);
+  assert.equal(HEROES.length, 6);
 });
 
 test('Cannoneer stats layer over the base sheet and recoil-hops away from the cursor', () => {

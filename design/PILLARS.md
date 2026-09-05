@@ -145,3 +145,9 @@ In rough order. Each becomes an `AB-*.md` when it is tested.
   default; Easy preset added as the player-facing easy mode under FEEL. Reaver added (melee, signposted
   windup, locked-facing swing, recovery). Hit-stun shove on landed bolts. Player bolts slowed to 1000 (cannon
   820) with a glow, a longer trail and a diamond head. Ctrl+S no longer opens the browser's save dialog.
+- 2026-09-05 (evening): Easy made gentler and given a Pressure slider (0 = floor, 90% = nearly Iron) so the
+  easy mode is a range rather than a point. Three weapon classes added, each with its own kiting tempo:
+  Arbalest (heavy crossbow: straight piercing quarrel through four bodies, crank rewound only by walking),
+  Rifleman (M1 Garand: eight rounds, ping, 1.6 s reload spent moving, R ejects early) and Gunslinger (twin
+  Berettas: off-hand shot at a second enemy, thirty rounds, 1.1 s rack). The ammunition systems are the
+  first "lunges" on the player side: forced repositioning windows instead of a constant cadence.

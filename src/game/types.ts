@@ -5,7 +5,7 @@ export type Drill = 'mixed' | 'rhythm' | 'dodge';
 /** Augment tiers, Arena style. */
 export type Rarity = 'silver' | 'gold' | 'prismatic';
 export type Tag = 'speed' | 'power' | 'crit' | 'sustain' | 'mobility' | 'aoe' | 'greed' | 'range';
-export type HeroId = 'marksman' | 'cannoneer' | 'skirmisher';
+export type HeroId = 'marksman' | 'cannoneer' | 'skirmisher' | 'arbalest' | 'rifleman' | 'gunslinger';
 
 export type Settings = {
   mode: Mode;
@@ -112,6 +112,12 @@ export type Bolt = Point & {
   splash: number;
   /** Empowered shots (Tempest chain, heavy cannon rounds) render larger. */
   heavy: boolean;
+  /** Piercing quarrels fly straight along `dir` instead of homing, hitting each enemy they cross once. */
+  dir?: Point;
+  pierce?: number;
+  struck?: number[];
+  travel?: number;
+  maxTravel?: number;
 };
 
 export type Beam = { points: Point[]; life: number; max: number; color: string };
@@ -303,6 +309,13 @@ export type Snapshot = {
   /** Skirmisher: the next blade would be a Tempo shot. */
   tempoReady: boolean;
   tempoShots: number;
+  /** Magazine weapons: rounds left and clip size (0/0 for others). */
+  ammo: number;
+  ammoMax: number;
+  /** Reload progress 0..1 while reloading, else 0. */
+  reload: number;
+  /** Crank weapons: 0..1 rewound (1 for others). */
+  crank: number;
   /** Active mid-wave event banner text, if one is showing. */
   event: string | null;
   /** Enrage clock: seconds until the current wave enrages (negative once it has) and the current enrage level. */

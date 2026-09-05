@@ -4,7 +4,7 @@ import { Arena } from './game/arena.ts';
 import { EMPTY_PROGRESS, HEROES, heroById, isUnlocked, type Progress } from './game/heroes.ts';
 import { registerTrainerTools } from './game/webmcp.ts';
 import { RARITY_LABEL, UPGRADES, baseStats } from './game/upgrades.ts';
-import { DEFAULT_PRESET, matchPreset, normaliseTuning, presetById, type Tuning } from './game/tuning.ts';
+import { DEFAULT_PRESET, EASY_DEFAULT_LEVEL, EASY_MAX_LEVEL, easyBlend, matchPreset, normaliseTuning, presetById, sameTuning, type Tuning } from './game/tuning.ts';
 import type { HeroId, Settings, Snapshot } from './game/types.ts';
 import { Bar, Metric, Range, Segmented, Toggle } from './ui/controls.tsx';
 import { TuningPanel } from './ui/tuning.tsx';
@@ -21,7 +21,7 @@ const empty: Snapshot = {
   kills: 0, damageDealt: 0, enemiesLeft: 0, dashCd: 0, dashMax: 5, dashCharges: 1, dashMaxCharges: 1, offers: null, offerTier: 'mixed',
   rerollsLeft: 1, rerollCost: 0, healCost: 8, healUsed: false, anvil: [], anvilCost: 6, anvilLeft: 2, fourthCost: 10, fourthBought: false,
   banishCost: 6, banishMode: false, ascendCost: 30, ascended: false, shards: {}, relics: [], questProgress: 0, questNeed: 0, questDone: false,
-  stats: baseStats(initial), heat: 0, momentum: 0, focus: 0, latched: 0, shield: 0, tempoReady: false, tempoShots: 0, event: null,
+  stats: baseStats(initial), heat: 0, momentum: 0, focus: 0, latched: 0, shield: 0, tempoReady: false, tempoShots: 0, ammo: 0, ammoMax: 0, reload: 0, crank: 1, event: null,
   enrageIn: 35, enrage: 0, cull: 0, dead: false, eliteHp: null,
 };
 
@@ -29,6 +29,8 @@ type BestRun = { wave: number; kills: number; time: number; gold: number; date: 
 const BEST_KEY = 'orbwalk-rogue-best';
 const PROGRESS_KEY = 'orbwalk-rogue-progress';
 const TUNING_KEY = 'orbwalk-rogue-tuning';
+const EASY_KEY = 'orbwalk-rogue-easy-level';
+const pressureWord = (level: number) => level <= 0.2 ? 'gentle' : level <= 0.5 ? 'steady' : level <= 0.75 ? 'firm' : 'nearly Iron';
 /** `?tuning=iron` opens the tuning panel on that preset; the panel is otherwise a dev-build affair. */
 const params = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
 const showTuning = import.meta.env.DEV || params.has('tuning');
@@ -46,6 +48,18 @@ function saveJson(key: string, value: unknown) {
 
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+/** Per-weapon coaching copy for the guide strip and the note under the stat sheet. */
+function coach(hero: ReturnType<typeof heroById>): { tip: string; title: string; body: string } {
+  switch (hero.weapon) {
+    case 'cannon': return { tip: 'Move between shells or overheat.', title: 'Shoot, step, shoot.', body: 'Every shell fired without moving adds heat and drags out the next windup. Forty units of movement vents it all. E hops you away from the cursor.' };
+    case 'blade': return { tip: 'Step, then throw. Dash through the pack.', title: 'Step, throw, step.', body: 'A blade released within half a second of moving is a Tempo shot for +40% damage and +15% crit. Stand and spam and you lose it. E is a blade dash that cuts everything it passes through once.' };
+    case 'crossbow': return { tip: 'Line them up. Walk to crank.', title: 'One quarrel, one line.', body: 'The quarrel flies straight and punches through up to four enemies, losing 15% per body. Firing spends the crank and only walking rewinds it: 90 units, then a click. Aim down the line of the pack, fire, run.' };
+    case 'garand': return { tip: 'Eight rounds, then move. R ejects early.', title: 'Eight, ping, reposition.', body: 'Semi-automatic and hard-hitting. The eighth round ejects the clip with a ping and starts 1.6 seconds of reload you spend walking. Press R to eject a partial clip when the moment is right rather than when the rifle decides.' };
+    case 'pistols': return { tip: 'Two targets at once. Stay close, stay moving.', title: 'Alternate, then rack.', body: 'Short reach and fast hands. Every attack fires the off-hand pistol at the nearest other enemy in reach for 60% damage. Thirty rounds between reloads of 1.1 seconds; R reloads early. The hit-stun on all those small shots is your breathing room.' };
+    default: return { tip: 'Dashes pass through everything.', title: 'Dash is your panic button.', body: 'E dashes toward the cursor and makes you untouchable for the duration. It cancels a windup, so use it after the release.' };
+  }
+}
+
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null), arena = useRef<Arena | null>(null);
   const [settings, setSettings] = useState(initial), [stats, setStats] = useState(empty);
@@ -59,6 +73,11 @@ export default function App() {
     const stored = loadJson<unknown>(TUNING_KEY, null);
     return stored ? normaliseTuning(stored) : { ...presetById(DEFAULT_PRESET).tuning };
   });
+  const [easyLevel, setEasyLevel] = useState<number>(() => {
+    const v = loadJson<unknown>(EASY_KEY, null);
+    return typeof v === 'number' && Number.isFinite(v) ? Math.min(EASY_MAX_LEVEL, Math.max(0, v)) : EASY_DEFAULT_LEVEL;
+  });
+  const pickEasy = (level: number) => { setEasyLevel(level); saveJson(EASY_KEY, level); setTuning(easyBlend(level)); };
   const recorded = useRef(false);
   const config = (patch: Partial<Settings>) => setSettings(s => ({ ...s, ...patch }));
   const pickHero = (hero: HeroId) => config({ hero, ...heroById(hero).profile });
@@ -105,8 +124,9 @@ export default function App() {
   const hpFrac = stats.hp / stats.maxHp;
   const dashReady = stats.dashCharges > 0;
   const tuningPreset = matchPreset(tuning);
-  const feel = tuningPreset?.id ?? 'custom';
-  const tuningTag = feel === DEFAULT_PRESET ? '' : tuningPreset ? ` · ${tuningPreset.name.toUpperCase()}` : ' · CUSTOM TUNING';
+  const onEasy = sameTuning(tuning, easyBlend(easyLevel));
+  const feel = onEasy ? 'easy' : tuningPreset?.id ?? 'custom';
+  const tuningTag = feel === DEFAULT_PRESET ? '' : feel === 'easy' ? ` · EASY ${Math.round(easyLevel * 100)}%` : tuningPreset ? ` · ${tuningPreset.name.toUpperCase()}` : ' · CUSTOM TUNING';
 
   return (
     <main>
@@ -244,7 +264,8 @@ export default function App() {
           <div className="timing-strip">
             <div className="phase-label"><Zap size={17} />{stats.phase}</div>
             <div className="timing-track"><div style={{ width: `${Math.max(0, Math.min(1, stats.progress)) * 100}%` }} className={stats.phase === 'WINDUP' ? 'windup' : ''} /></div>
-            <span className="timing-hint">{stats.phase === 'AIMING' ? 'Click to attack' : stats.phase === 'WINDUP' ? 'Hold for release' : stats.phase === 'RECOVERY' ? 'Move now' : stats.phase === 'DASH' ? 'Untouchable' : 'Ready to attack'}</span>
+            <span className="timing-hint">{stats.phase === 'AIMING' ? 'Click to attack' : stats.phase === 'WINDUP' ? 'Hold for release' : stats.phase === 'RECOVERY' ? 'Move now' : stats.phase === 'DASH' ? 'Untouchable' : stats.phase === 'RELOAD' ? 'Reloading. Keep moving' : stats.phase === 'CRANK' ? 'Walk to crank' : 'Ready to attack'}</span>
+            {hero.magazine && <span className={`ammo-counter ${stats.ammo === 0 ? 'empty' : ''}`} title="Rounds in the clip">{stats.ammo}<small>/{stats.ammoMax}</small></span>}
             {run && (
               <div className={`dash-meter ${dashReady && active ? 'ready' : ''}`} title="Dash">
                 <span>E</span>
@@ -280,10 +301,11 @@ export default function App() {
             <div><kbd>RMB</kbd>Move</div>
             <div><kbd>A</kbd>{!settings.quick && <>then <kbd>LMB</kbd></>}Attack move</div>
             <div><kbd>E</kbd>{hero.dashMode === 'away' ? 'Recoil hop' : hero.dashStrike ? 'Blade dash' : 'Dash'}</div>
+            {hero.magazine && <div><kbd>R</kbd>Reload</div>}
             <div><kbd>S</kbd>Stop</div>
             <div><kbd>SPACE</kbd>Pause</div>
             {run && <div><kbd>1-4</kbd>Augment <kbd>7-9</kbd>Anvil <kbd>F</kbd><kbd>B</kbd><kbd>A</kbd>Sinks</div>}
-            <span className="guide-tip">{run ? (hero.heat ? 'Move between shells or overheat.' : hero.tempo ? 'Step, then throw. Dash through the pack.' : 'Dashes pass through everything.') : 'Move after the cyan flash.'}</span>
+            <span className="guide-tip">{run ? coach(hero).tip : 'Move after the cyan flash.'}</span>
           </div>
         </section>
 
@@ -324,8 +346,11 @@ export default function App() {
 
           <div className="setting-section">
             <div className="eyebrow">FEEL</div>
-            <Segmented value={feel} disabled={locked} onChange={v => setTuning({ ...presetById(v).tuning })} options={[{ value: 'iron', label: 'Iron' }, { value: 'easy', label: 'Easy' }]} />
-            <p className="setting-note">{feel === 'iron' || feel === 'easy' ? presetById(feel).blurb : feel === 'ledger' ? 'Dev reference scale (Ledger). Pick Iron or Easy to play the tuned game.' : 'Custom numbers from the tuning panel.'}</p>
+            <Segmented value={feel} disabled={locked} onChange={v => { if (v === 'easy') pickEasy(easyLevel); else setTuning({ ...presetById(v).tuning }); }} options={[{ value: 'iron', label: 'Iron' }, { value: 'easy', label: 'Easy' }]} />
+            {feel === 'easy' && (
+              <Range label="Pressure" value={Math.round(easyLevel * 100)} display={`${Math.round(easyLevel * 100)}% · ${pressureWord(easyLevel)}`} min={0} max={Math.round(EASY_MAX_LEVEL * 100)} step={5} disabled={locked} change={v => pickEasy(v / 100)} />
+            )}
+            <p className="setting-note">{feel === 'easy' ? 'Easy slides from a gentle floor (0%) toward Iron (100%): reach, enemy speed, damage, warnings, drafts and Prismatic odds all move together. Find the point where you still die sometimes.' : feel === 'iron' ? presetById('iron').blurb : feel === 'ledger' ? 'Dev reference scale (Ledger). Pick Iron or Easy to play the tuned game.' : 'Custom numbers from the tuning panel.'}</p>
           </div>
 
           <div className="setting-section">
@@ -372,6 +397,8 @@ export default function App() {
               <div><span>Move speed</span><b>{Math.round(stats.stats.moveSpeed)}</b></div>
               <div><span>Dash cooldown</span><b>{stats.stats.dashCd.toFixed(1)}s{stats.dashMaxCharges > 1 && ` ×${stats.dashMaxCharges}`}</b></div>
               {hero.heat && <div><span>Heat</span><b className={stats.heat >= 4 ? 'hot' : ''}>{stats.heat}/4{stats.stats.overclock > 0 && stats.heat >= 4 && <em> primed</em>}</b></div>}
+              {hero.magazine && <div><span>Clip</span><b className={stats.ammo === 0 ? 'hot' : ''}>{stats.ammo}/{stats.ammoMax}{stats.reload > 0 && <em> reloading</em>}</b></div>}
+              {hero.crank && <div><span>Crank</span><b className={stats.crank < 1 ? 'hot' : ''}>{Math.round(stats.crank * 100)}%</b></div>}
               {stats.stats.focus > 0 && <div><span>Focus</span><b>+{stats.focus * 8}%</b></div>}
               {stats.stats.shieldMax > 0 && <div><span>Shield</span><b>{stats.shield}/{stats.stats.shieldMax}</b></div>}
               {stats.latched > 0 && <div><span>Leeches</span><b className="hot">{stats.latched} attached · dash</b></div>}
@@ -379,7 +406,7 @@ export default function App() {
             </div>
           )}
 
-          <div className="coach-note"><Shield size={20} /><div><strong>{run ? (hero.heat ? 'Shoot, step, shoot.' : hero.tempo ? 'Step, throw, step.' : 'Dash is your panic button.') : 'Clean release, then move.'}</strong><p>{run ? (hero.heat ? 'Every shell fired without moving adds heat and drags out the next windup. Forty units of movement vents it all. E hops you away from the cursor.' : hero.tempo ? 'A blade released within half a second of moving is a Tempo shot for +40% damage and +15% crit. Stand and spam and you lose it. E is a blade dash that cuts everything it passes through once.' : 'E dashes toward the cursor and makes you untouchable for the duration. It cancels a windup, so use it after the release.') : 'A move command during windup cancels your attack. The cyan flash is your cue to reposition.'}</p></div></div>
+          <div className="coach-note"><Shield size={20} /><div><strong>{run ? coach(hero).title : 'Clean release, then move.'}</strong><p>{run ? coach(hero).body : 'A move command during windup cancels your attack. The cyan flash is your cue to reposition.'}</p></div></div>
           <div className="secondary-metrics">
             <div><span>{run ? 'Hits taken' : 'Skill shots taken'}</span><b>{stats.hits}</b></div>
             <div><span>Moving uptime</span><b>{Math.round(stats.moved)}%</b></div>

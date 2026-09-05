@@ -769,7 +769,7 @@ function drawBeams(sim: Simulation, c: CanvasRenderingContext2D) {
 
 function drawBolts(sim: Simulation, c: CanvasRenderingContext2D) {
   for (const b of sim.bolts) {
-    const a = Math.atan2(b.target.y - b.y, b.target.x - b.x);
+    const a = b.dir ? Math.atan2(b.dir.y, b.dir.x) : Math.atan2(b.target.y - b.y, b.target.x - b.x);
     const col = b.crit ? '#ffe37a' : sim.hero.colors.bolt;
     c.lineCap = 'round';
     for (let i = 0; i < b.trail.length; i++) {
@@ -780,7 +780,26 @@ function drawBolts(sim: Simulation, c: CanvasRenderingContext2D) {
       c.beginPath(); c.moveTo(q.x, q.y); c.lineTo(b.x, b.y); c.stroke();
     }
     c.globalAlpha = 1;
-    if (b.heavy) {
+    if (b.dir) {
+      // Piercing quarrel: a long steel shaft with fletching, a bright tip and a glow.
+      const dx = Math.cos(a), dy = Math.sin(a), px = -dy, py = dx;
+      c.save();
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = 0.2;
+      c.fillStyle = col;
+      c.beginPath(); c.arc(b.x, b.y, 14, 0, Math.PI * 2); c.fill();
+      c.restore();
+      c.strokeStyle = '#3d4a6b';
+      c.lineWidth = 4;
+      c.beginPath(); c.moveTo(b.x - dx * 34, b.y - dy * 34); c.lineTo(b.x + dx * 6, b.y + dy * 6); c.stroke();
+      c.strokeStyle = col;
+      c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(b.x - dx * 34, b.y - dy * 34); c.lineTo(b.x + dx * 6, b.y + dy * 6); c.stroke();
+      c.fillStyle = col;
+      for (const s of [-1, 1]) { c.beginPath(); c.moveTo(b.x - dx * 34, b.y - dy * 34); c.lineTo(b.x - dx * 28 + px * 5 * s, b.y - dy * 28 + py * 5 * s); c.lineTo(b.x - dx * 24, b.y - dy * 24); c.closePath(); c.fill(); }
+      c.fillStyle = '#ffffff';
+      c.beginPath(); c.moveTo(b.x + dx * 14, b.y + dy * 14); c.lineTo(b.x + dx * 4 + px * 4, b.y + dy * 4 + py * 4); c.lineTo(b.x + dx * 4 - px * 4, b.y + dy * 4 - py * 4); c.closePath(); c.fill();
+    } else if (b.heavy) {
       c.fillStyle = '#3a2410';
       c.beginPath(); c.arc(b.x, b.y, 8, 0, Math.PI * 2); c.fill();
       circle(c, b.x, b.y, 8, col, 2.5);
@@ -927,13 +946,32 @@ function drawPlayer(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: 
     c.fillStyle = '#e9eef5';
     for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(-3, i * 5 - 2); c.lineTo(3, i * 5 - 2); c.lineTo(0, i * 5 + 2); c.closePath(); c.fill(); }
     c.restore();
-  } else {
+  } else if (hero.weapon === 'cannon') {
     // Ammo drum on the back.
     c.fillStyle = '#3a2410';
     c.beginPath(); c.arc(-9, -8, 6, 0, Math.PI * 2); c.fill();
     c.strokeStyle = col.trim;
     c.lineWidth = 1.5;
     c.stroke();
+  } else if (hero.weapon === 'crossbow') {
+    // Quarrel case on the hip.
+    c.fillStyle = dark;
+    c.fillRect(-11, 4, 7, 12);
+    c.fillStyle = '#dfe9ff';
+    for (let i = 0; i < 3; i++) c.fillRect(-10 + i * 2.2, 3, 1.2, 4);
+  } else if (hero.weapon === 'garand') {
+    // Cartridge belt across the chest.
+    c.save();
+    c.rotate(0.5);
+    c.fillStyle = dark;
+    c.fillRect(-2, -14, 4, 28);
+    c.fillStyle = '#ffd27a';
+    for (let i = -2; i <= 2; i++) c.fillRect(-1.2, i * 5 - 1, 2.4, 2.4);
+    c.restore();
+  } else if (hero.weapon === 'pistols') {
+    // Twin holsters.
+    c.fillStyle = dark;
+    for (const s of [-1, 1]) c.fillRect(-9, s * 9 - 3, 6, 6);
   }
   // Shoulders and torso; the cannoneer is broader.
   const torsoW = hero.weapon === 'cannon' ? 13 : 11, torsoH = hero.weapon === 'cannon' ? 17 : 15;
@@ -1010,6 +1048,107 @@ function drawPlayer(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: 
     if (tempo && sim.status === 'running') {
       c.fillStyle = `rgba(255,159,176,${0.5 + Math.sin(t * 20) * 0.4})`;
       c.beginPath(); c.arc(11, 12, 3.5, 0, Math.PI * 2); c.fill();
+    }
+  } else if (hero.weapon === 'crossbow') {
+    // Heavy crossbow held level: stock, a wide bow at the front, a string that sits forward until the
+    // crank rewinds it, and a quarrel on the rail only once it is loaded.
+    const crank = sim.crank;
+    const bowX = 20;
+    c.strokeStyle = skin;
+    c.lineWidth = 4;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(4, -9); c.lineTo(15, -3); c.stroke();
+    c.beginPath(); c.moveTo(2, 9); c.lineTo(8, 2); c.stroke();
+    c.lineCap = 'butt';
+    c.fillStyle = '#2a3552';
+    c.fillRect(-2, -3, bowX + 8, 6);
+    c.fillStyle = '#4a5f8f';
+    c.fillRect(2, -1.5, bowX + 2, 3);
+    // Bow limbs.
+    c.strokeStyle = '#9fb8e8';
+    c.lineWidth = 3;
+    c.beginPath(); c.moveTo(bowX, -18); c.quadraticCurveTo(bowX + 6, 0, bowX, 18); c.stroke();
+    // String: forward when spent, drawn back to the nut when cranked.
+    const nutX = bowX - 12 * crank;
+    c.strokeStyle = crank >= 1 ? '#ffffff' : '#c9d6f5';
+    c.lineWidth = crank >= 1 ? 1.6 : 1;
+    c.beginPath(); c.moveTo(bowX, -18); c.lineTo(nutX, 0); c.lineTo(bowX, 18); c.stroke();
+    // Crank handle turns as it winds.
+    c.save();
+    c.translate(0, 6);
+    c.rotate(crank * Math.PI * 4);
+    c.strokeStyle = '#e3ecff';
+    c.lineWidth = 2;
+    c.beginPath(); c.moveTo(-4, 0); c.lineTo(4, 0); c.stroke();
+    c.restore();
+    if (crank >= 1 && sim.flash <= 0.08) {
+      // Loaded quarrel.
+      c.strokeStyle = '#dfe9ff';
+      c.lineWidth = 2.5;
+      c.beginPath(); c.moveTo(nutX, 0); c.lineTo(bowX + 16 + windupFrac * 2, 0); c.stroke();
+      c.fillStyle = '#ffffff';
+      c.beginPath(); c.moveTo(bowX + 21 + windupFrac * 2, 0); c.lineTo(bowX + 14, -3); c.lineTo(bowX + 14, 3); c.closePath(); c.fill();
+    } else if (sim.flash > 0.08) {
+      c.fillStyle = '#dfe9ffaa';
+      c.beginPath(); c.arc(bowX + 14, 0, (sim.flash - 0.08) * 140, 0, Math.PI * 2); c.fill();
+    }
+  } else if (hero.weapon === 'garand') {
+    // M1 Garand: long wooden stock, steel barrel, muzzle flash on the shot; the rifle drops to port arms
+    // while the clip is out.
+    const reloading = sim.reloadLeft > 0;
+    c.save();
+    if (reloading) c.rotate(0.55);
+    c.strokeStyle = skin;
+    c.lineWidth = 4;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(4, -9); c.lineTo(18, -3); c.stroke();
+    c.beginPath(); c.moveTo(2, 9); c.lineTo(6, 3); c.stroke();
+    c.lineCap = 'butt';
+    c.fillStyle = '#6b4222';
+    c.fillRect(-4, -3.5, 22, 7);
+    c.fillRect(14, -2.5, 8, 5);
+    c.fillStyle = '#3d3f44';
+    c.fillRect(20, -1.8, 20, 3.6);
+    c.fillStyle = dark;
+    c.fillRect(6, -5, 8, 10);
+    if (reloading) {
+      // Open receiver.
+      c.fillStyle = '#ffd27a';
+      c.fillRect(8, -6, 4, 3);
+    }
+    if (sim.flash > 0.06 && !reloading) {
+      c.fillStyle = '#fff1b8cc';
+      c.beginPath(); c.arc(42, 0, (sim.flash - 0.06) * 150, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#fff8dd';
+      c.lineWidth = 2;
+      for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(43, i * 4); c.lineTo(52 + (1 - Math.abs(i)) * 6, i * 9); c.stroke(); }
+    }
+    c.restore();
+  } else if (hero.weapon === 'pistols') {
+    // Twin pistols: both arms forward, the hand that just fired kicks back, alternating each shot.
+    const side = sim.attackCount % 2 ? -1 : 1;
+    const reloading = sim.reloadLeft > 0;
+    const kickFrac = sim.recoil > 0 ? sim.recoil / 0.08 : 0;
+    for (const s of [-1, 1]) {
+      const firing = s === side && kickFrac > 0 && !reloading;
+      const back = firing ? kickFrac * 5 : 0;
+      c.save();
+      if (reloading) c.rotate(s * 0.7);
+      c.strokeStyle = skin;
+      c.lineWidth = 4;
+      c.lineCap = 'round';
+      c.beginPath(); c.moveTo(3, s * 8); c.lineTo(16 - back, s * 6); c.stroke();
+      c.lineCap = 'butt';
+      c.fillStyle = dark;
+      c.fillRect(14 - back, s * 6 - 2, 12, 4);
+      c.fillRect(13 - back, s * 6 - 1, 3, s > 0 ? 6 : -6);
+      c.fillStyle = '#c9a36b';
+      c.fillRect(24 - back, s * 6 - 1.2, 3, 2.4);
+      if (firing) {
+        c.fillStyle = '#ffe8a8cc';
+        c.beginPath(); c.arc(29 - back, s * 6, kickFrac * 7, 0, Math.PI * 2); c.fill();
+      }
+      c.restore();
     }
   } else {
     // Cannon: shoulder-mounted barrel with a heat glow that climbs with heat.
@@ -1089,6 +1228,41 @@ function drawPlayer(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: 
       c.fillStyle = i < sim.heat ? (sim.heat >= 4 ? '#ff5c5c' : '#ff9a6b') : '#3a2a20';
       c.fillRect(p.x - 14 + i * 8, p.y + 54, 6, 3);
     }
+  }
+  // Magazine pips (or a bar for big clips), a reload arc, and the crank arc.
+  if (sim.hero.magazine) {
+    const size = sim.hero.magazine.size;
+    if (size <= 10) {
+      const w = 5, gap = 2, total = size * (w + gap) - gap;
+      for (let i = 0; i < size; i++) {
+        c.fillStyle = i < sim.ammo ? col.bolt : '#2c3038';
+        c.fillRect(p.x - total / 2 + i * (w + gap), p.y + 54, w, 3);
+      }
+    } else {
+      c.fillStyle = '#2c3038';
+      c.fillRect(p.x - 22, p.y + 54, 44, 3);
+      c.fillStyle = col.bolt;
+      c.fillRect(p.x - 22, p.y + 54, 44 * (sim.ammo / size), 3);
+    }
+    if (sim.reloadLeft > 0) {
+      c.lineWidth = 4;
+      c.strokeStyle = '#ffe9a8';
+      c.beginPath();
+      c.arc(p.x, p.y, 36, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - sim.reloadLeft / sim.hero.magazine.reload));
+      c.stroke();
+    }
+  }
+  if (sim.hero.crank && sim.crank < 1) {
+    c.lineWidth = 4;
+    c.strokeStyle = col.capeTrim;
+    c.beginPath();
+    c.arc(p.x, p.y, 36, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * sim.crank);
+    c.stroke();
+    c.fillStyle = col.capeTrim;
+    c.font = 'bold 10px monospace';
+    c.textAlign = 'center';
+    c.fillText('WALK TO CRANK', p.x, p.y + 64);
+    c.textAlign = 'left';
   }
   if (sim.isRun) hpBar(c, p.x, p.y - 44, 52, sim.hp / sim.stats.maxHp, lowHp ? '#ff677d' : '#79f1cd');
   else { c.fillStyle = '#79f1cd'; c.fillRect(p.x - 22, p.y - 44, 44, 4); }

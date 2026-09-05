@@ -283,6 +283,10 @@ footer { max-width: 1800px; margin: 10px auto 0; padding: 17px 3.5% 22px; border
 .unlock-banner { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 6px 0 4px; padding: 8px 10px; font-size: 13px; color: #e6c9ff; background: #2a1a3a; border: 1px solid #7a4aa8; border-radius: 5px; animation: rise .5s cubic-bezier(.2, .9, .3, 1.2); }
 @media (max-width: 820px) { .shards { grid-template-columns: 1fr; } .hero-picker { grid-template-columns: 1fr; } }
 
+.ammo-counter { font-family: var(--mono); font-size: 15px; color: #d3dedc; padding: 2px 8px; border: 1px solid #2c3b41; border-radius: 4px; background: #0c141a; }
+.ammo-counter small { font-size: 11px; color: #748b90; }
+.ammo-counter.empty { color: var(--danger); border-color: #6b3541; }
+
 /* Dev tuning panel */
 .tuning-panel { border-top: 1px solid #28353d; margin-top: 22px; padding-top: 19px; }
 .tuning-panel > summary { display: flex; justify-content: space-between; align-items: center; cursor: pointer; list-style: none; }

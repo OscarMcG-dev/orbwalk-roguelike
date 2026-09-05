@@ -155,6 +155,11 @@ export class Simulation {
   tempoFlash = 0;
   /** Blade dash: enemies already cut during the current dash. */
   dashStruck: number[] = [];
+  /** Magazine weapons: rounds in the clip and seconds of reload left. */
+  ammo = 0;
+  reloadLeft = 0;
+  /** Crank weapons: 0..1 rewound. Starts loaded. */
+  crank = 1;
 
   // mid-wave events
   omens: Omen[] = [];
@@ -266,6 +271,10 @@ export class Simulation {
   cutEvent = 0;
   /** A Reaver swung (hit or miss). */
   swingEvent = 0;
+  /** Garand clip ejected (the ping), a reload started (rack), a reload or crank finished (ready). */
+  pingEvent = 0;
+  rackEvent = 0;
+  loadedEvent = 0;
 
   constructor(settings: Settings) {
     this.settings = { ...settings };
@@ -414,6 +423,9 @@ export class Simulation {
     this.tempoShots = 0;
     this.tempoFlash = 0;
     this.dashStruck = [];
+    this.ammo = this.hero.magazine?.size ?? 0;
+    this.reloadLeft = 0;
+    this.crank = 1;
     this.omens = [];
     this.pendingEvents = [];
     this.fightTime = 0;
@@ -577,6 +589,43 @@ export class Simulation {
     this.attackPoint = { ...p };
     this.destination = null;
     this.effect(t, '#e7c177');
+  }
+
+  /** Magazine and crank gates on the next shot. An empty clip starts its reload here. */
+  canFire() {
+    if (this.hero.magazine) {
+      if (this.reloadLeft > 0) return false;
+      if (this.ammo <= 0) {
+        this.startReload();
+        return false;
+      }
+    }
+    if (this.hero.crank && this.crank < 1) return false;
+    return true;
+  }
+
+  /** Begin a reload: the Garand's clip leaves with a ping, pistols rack. Moving is free throughout. */
+  startReload() {
+    const mag = this.hero.magazine;
+    if (!mag || this.reloadLeft > 0) return;
+    this.reloadLeft = mag.reload;
+    if (mag.ping) {
+      this.pingEvent++;
+      this.effect({ x: this.player.x, y: this.player.y - 14 }, '#ffe9a8', 'PING', 15);
+      // The en-bloc clip: one brass shard tossed up and away.
+      this.particles.push({ x: this.player.x + 8, y: this.player.y - 6, vx: 120 + this.rng.range(0, 60), vy: -260, life: 0.7, max: 0.7, size: 5, color: '#ffd27a', drag: 1.2, shape: 'shard', rot: 0, spin: 14 });
+    } else {
+      this.rackEvent++;
+      this.effect({ x: this.player.x, y: this.player.y - 14 }, '#ffe9a8', 'RELOAD', 13);
+    }
+  }
+
+  /** Manual reload (R): eject a partial clip early. */
+  reload() {
+    const mag = this.hero.magazine;
+    if (this.status !== 'running' || !mag || this.ammo >= mag.size || this.reloadLeft > 0) return;
+    if (this.windupLeft > 0) this.cancel();
+    this.startReload();
   }
 
   dash(p: Point) {
@@ -1294,7 +1343,13 @@ export class Simulation {
     this.attackCount++;
     this.shotEvent++;
     this.flash = 0.14;
-    this.recoil = this.hero.weapon === 'cannon' ? 0.18 : 0.12;
+    this.recoil = this.hero.weapon === 'cannon' ? 0.18 : this.hero.weapon === 'crossbow' ? 0.2 : this.hero.weapon === 'garand' ? 0.14 : this.hero.weapon === 'pistols' ? 0.08 : 0.12;
+    // Ammunition: a clip round leaves the magazine (the last one starts the reload); a crank shot spends the crank.
+    if (this.hero.magazine) {
+      this.ammo = Math.max(0, this.ammo - 1);
+      if (this.ammo === 0) this.startReload();
+    }
+    if (this.hero.crank) this.crank = 0;
     // Hunter's Focus: ramp on the same target, reset on a switch.
     if (this.stats.focus) {
       if (this.focusTarget === this.target.id) this.focusStacks = Math.min(FOCUS_MAX, this.focusStacks + 1);
@@ -1327,11 +1382,17 @@ export class Simulation {
     }
     const { damage: rolled, crit } = this.rollDamage(this.target, bonusCrit);
     const damage = Math.round(rolled * boltMult);
-    this.fireAt(this.target, damage, crit, this.stats.bounces, this.player, this.hero.weapon === 'cannon');
+    if (this.hero.pierce) this.firePierce(this.target, damage, crit);
+    else this.fireAt(this.target, damage, crit, this.stats.bounces, this.player, this.hero.weapon === 'cannon');
     // Split Shot: extra bolts at the next nearest enemies in range (or the same target).
     const others = this.targetable()
       .filter(e => e.id !== this.target!.id && distance(e, this.player) <= this.stats.range + e.radius)
       .sort((a, b) => distance(a, this.player) - distance(b, this.player));
+    // Off-hand pistol: a second, weaker shot at the nearest other enemy in reach.
+    if (this.hero.offhand && others[0]) {
+      const roll = this.rollDamage(others[0], bonusCrit);
+      this.fireAt(others[0], Math.max(1, Math.round(roll.damage * this.hero.offhand * boltMult)), roll.crit, this.stats.bounces, this.player);
+    }
     for (let i = 1; i < this.stats.projectiles; i++) {
       const extra = others[i - 1] ?? this.target;
       const roll = this.rollDamage(extra, bonusCrit);
@@ -1340,6 +1401,44 @@ export class Simulation {
     const every = this.stats.thunderhead ? 2 : 3;
     if (this.stats.tempest && this.attackCount % every === 0) this.tempest(this.target, damage);
     this.effect(this.player, this.hero.colors.bolt);
+  }
+
+  /** Arbalest quarrel: flies straight through the target's position and on, hitting each enemy it crosses once. */
+  firePierce(target: Enemy, damage: number, crit: boolean) {
+    const d = distance(this.player, target) || 1;
+    const dir = { x: (target.x - this.player.x) / d, y: (target.y - this.player.y) / d };
+    this.bolts.push({
+      x: this.player.x, y: this.player.y, origin: { ...this.player }, target, damage, crit, bounces: 0,
+      speed: 1500 * this.tuning.boltSpeed, trail: [], splash: this.stats.splash, heavy: true,
+      dir, pierce: this.hero.pierce ?? 1, struck: [], travel: 0, maxTravel: this.stats.range + 140,
+    });
+  }
+
+  /** Step a piercing quarrel: straight flight, one hit per enemy crossed, damage falling 15% per body. */
+  stepPierce(b: Bolt, dt: number) {
+    const step = b.speed * dt;
+    b.x += b.dir!.x * step;
+    b.y += b.dir!.y * step;
+    b.travel = (b.travel ?? 0) + step;
+    for (const e of this.targetable()) {
+      if (b.struck!.includes(e.id) || distance(e, b) > e.radius + 9) continue;
+      b.struck!.push(e.id);
+      const dmg = Math.max(1, Math.round(b.damage * Math.pow(0.85, b.struck!.length - 1)));
+      if (this.blocks(e, b)) {
+        e.block = 0.25;
+        e.flash = 0.1;
+        this.blockEvent++;
+        this.effect({ x: e.x, y: e.y - e.radius - 8 }, '#cfe3ff', 'BLOCKED', 15);
+        b.x = -9999;
+        return;
+      }
+      this.damageEnemy(e, dmg, b.crit);
+      if (b.struck!.length >= b.pierce!) {
+        b.x = -9999;
+        return;
+      }
+    }
+    if (b.travel > (b.maxTravel ?? 0) || b.x < -40 || b.x > W + 40 || b.y < -40 || b.y > H + 40) b.x = -9999;
   }
 
   /** Tempest: lightning chains from the target through nearby enemies. Thunderhead lengthens the chain. */
@@ -1835,6 +1934,16 @@ export class Simulation {
       }
     }
 
+    // Reload clock: the clip refills when it runs out, with a ready cue.
+    if (this.reloadLeft > 0) {
+      this.reloadLeft -= dt;
+      if (this.reloadLeft <= 0) {
+        this.reloadLeft = 0;
+        this.ammo = this.hero.magazine?.size ?? 0;
+        this.loadedEvent++;
+        this.attackReadyPulse = 0.35;
+      }
+    }
     // Dash recharge with a ready cue once a charge comes back.
     if (this.dashCd > 0) {
       this.dashCd -= dt;
@@ -1897,7 +2006,7 @@ export class Simulation {
           this.destination = { ...this.target };
         } else {
           this.destination = null;
-          if (this.cooldown <= 0) {
+          if (this.cooldown <= 0 && this.canFire()) {
             const as = this.effectiveAttackSpeed();
             // Quickdraw: the first bolt at a fresh target skips the windup entirely.
             const instant = this.stats.quickdraw > 0 && this.target.id !== this.lastFiredTarget;
@@ -1968,6 +2077,15 @@ export class Simulation {
     // Hero mechanics driven by movement.
     if (moved > 0) {
       this.stillTime = 0;
+      // Arbalest: walking rewinds the crank; a full crank clicks ready.
+      if (this.hero.crank && this.crank < 1) {
+        this.crank = Math.min(1, this.crank + moved / this.hero.crank);
+        if (this.crank >= 1) {
+          this.loadedEvent++;
+          this.attackReadyPulse = 0.35;
+          this.effect({ x: this.player.x, y: this.player.y - 14 }, this.hero.colors.capeTrim, 'LOADED', 13);
+        }
+      }
       if (this.hero.heat) {
         this.movedSinceShot += moved;
         if (this.movedSinceShot >= 40 && this.heat > 0) {
@@ -2001,6 +2119,10 @@ export class Simulation {
     for (const b of this.bolts) {
       b.trail.push({ x: b.x, y: b.y });
       if (b.trail.length > 12) b.trail.shift();
+      if (b.dir) {
+        this.stepPierce(b, dt);
+        continue;
+      }
       const d = distance(b, b.target);
       if (d < b.speed * dt || b.target.dead && d < 30) {
         this.landBolt(b);
@@ -2213,7 +2335,8 @@ export class Simulation {
   // ---------------------------------------------------------------- snapshot
 
   snapshot(): Snapshot {
-    const phase = this.armed ? 'AIMING' : this.dashing > 0 ? 'DASH' : this.windupLeft > 0 ? 'WINDUP' : this.cooldown > 0 ? 'RECOVERY' : 'READY';
+    const reloading = this.reloadLeft > 0, cranking = !!this.hero.crank && this.crank < 1;
+    const phase = this.armed ? 'AIMING' : this.dashing > 0 ? 'DASH' : this.windupLeft > 0 ? 'WINDUP' : reloading ? 'RELOAD' : cranking ? 'CRANK' : this.cooldown > 0 ? 'RECOVERY' : 'READY';
     const elite = this.enemies.find(e => e.elite && !e.dead);
     const quest = this.quest;
     return {
@@ -2228,7 +2351,10 @@ export class Simulation {
       dodged: this.dodged,
       moved: this.elapsed ? this.movingTime / this.elapsed * 100 : 0,
       phase,
-      progress: this.windupLeft > 0 ? 1 - this.windupLeft / this.windupTotal : 1 - this.cooldown * this.effectiveAttackSpeed(),
+      progress: this.windupLeft > 0 ? 1 - this.windupLeft / this.windupTotal
+        : reloading ? 1 - this.reloadLeft / (this.hero.magazine?.reload ?? 1)
+        : cranking ? this.crank
+        : 1 - this.cooldown * this.effectiveAttackSpeed(),
       streak: this.streak,
       best: this.best,
       hp: Math.max(0, Math.ceil(this.hp)),
@@ -2271,6 +2397,10 @@ export class Simulation {
       latched: this.latched,
       tempoReady: this.tempoReady,
       tempoShots: this.tempoShots,
+      ammo: this.ammo,
+      ammoMax: this.hero.magazine?.size ?? 0,
+      reload: reloading ? 1 - this.reloadLeft / (this.hero.magazine?.reload ?? 1) : 0,
+      crank: this.hero.crank ? this.crank : 1,
       event: this.eventBanner?.text ?? null,
       enrageIn: this.waveState === 'fighting' ? this.enrageLimit - this.fightTime : this.enrageLimit,
       enrage: this.enrage,
