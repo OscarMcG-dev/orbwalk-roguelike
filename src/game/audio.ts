@@ -56,6 +56,8 @@ export class Synth {
   cut() { this.tone(1400, 0.05, { type: 'sawtooth', to: 300, gain: 0.03 }); }
   /** Low two-note warning: a champion (affixed enemy) has arrived. */
   champion() { this.tone(196, 0.22, { type: 'triangle', to: 196, gain: 0.04 }); this.tone(261, 0.28, { type: 'triangle', to: 261, gain: 0.04, delay: 0.16 }); }
+  /** Reaver swing: a low whoosh. */
+  swing() { this.tone(240, 0.16, { type: 'sawtooth', to: 90, gain: 0.035 }); this.noise(0.14, 0.035); }
   death() { this.tone(220, 0.8, { type: 'sawtooth', to: 40, gain: 0.06 }); this.noise(0.5, 0.06); }
 
   close() { void this.ctx?.close(); }

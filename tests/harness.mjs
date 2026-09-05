@@ -13,8 +13,9 @@ export const baseSettings = (hero = 'marksman', difficulty = 'standard') => ({
  * `shop(s)` decides the draft; default picks the highest rarity on offer. `spend(s)` decides anvil/heal spending;
  * default buys shards greedily while keeping a heal in reserve.
  */
-export function autopilotRun({ seed = 1, hero = 'marksman', difficulty = 'standard', target = 12, maxTime = 1500, shop, spend } = {}) {
+export function autopilotRun({ seed = 1, hero = 'marksman', difficulty = 'standard', target = 12, maxTime = 1500, shop, spend, tuning } = {}) {
   const s = new Simulation(baseSettings(hero, difficulty));
+  if (tuning) s.setTuning(tuning);
   s.rng.seed = seed >>> 0 || 1;
   s.start();
   const out = {

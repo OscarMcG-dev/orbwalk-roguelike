@@ -282,3 +282,30 @@ footer { max-width: 1800px; margin: 10px auto 0; padding: 17px 3.5% 22px; border
 .stat-sheet .hot { color: #ff5c5c; }
 .unlock-banner { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 6px 0 4px; padding: 8px 10px; font-size: 13px; color: #e6c9ff; background: #2a1a3a; border: 1px solid #7a4aa8; border-radius: 5px; animation: rise .5s cubic-bezier(.2, .9, .3, 1.2); }
 @media (max-width: 820px) { .shards { grid-template-columns: 1fr; } .hero-picker { grid-template-columns: 1fr; } }
+
+/* Dev tuning panel */
+.tuning-panel { border-top: 1px solid #28353d; margin-top: 22px; padding-top: 19px; }
+.tuning-panel > summary { display: flex; justify-content: space-between; align-items: center; cursor: pointer; list-style: none; }
+.tuning-panel > summary::-webkit-details-marker { display: none; }
+.tuning-panel > summary .eyebrow { margin: 0; }
+.tuning-state { font-family: var(--mono); font-size: 11px; color: #c4e5d9; padding: 2px 7px; border: 1px solid #3f6a5c; border-radius: 4px; background: #17262a; }
+.tuning-panel .segmented { margin-top: 14px; }
+.tuning-readout { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 16px; }
+.tuning-readout > div { background: #0c141a; border: 1px solid #2b383f; border-radius: 5px; padding: 8px 9px; }
+.tuning-readout span { display: block; font-size: 10px; letter-spacing: 1px; color: #8fa1a6; }
+.tuning-readout b { display: block; font-family: var(--mono); font-size: 13px; font-weight: 500; margin-top: 3px; color: #d3dedc; }
+.tuning-margins { margin-top: 14px; }
+.tuning-margins > .eyebrow { display: block; margin-bottom: 8px; }
+.tuning-margins > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.tuning-margins i { font-style: normal; font-family: var(--mono); font-size: 11px; padding: 3px 7px; border-radius: 4px; border: 1px solid #3a4c52; color: #c3d5d3; }
+.tuning-margins i.ok { border-color: #3f6a5c; color: #a2ebcd; }
+.tuning-margins i.bad { border-color: #6b3541; color: #ff8fa0; }
+.tuning-margins small { display: block; font-size: 11px; color: #7f959b; margin-top: 8px; }
+.tuning-group { margin-top: 22px; }
+.tuning-group > summary { display: flex; align-items: center; justify-content: space-between; font-size: 11px; cursor: pointer; list-style: none; }
+.tuning-group > summary::-webkit-details-marker { display: none; }
+.tuning-group > summary i { font-style: normal; font-family: var(--mono); font-size: 10px; color: #c4e5d9; }
+.tuning-group .range-setting { margin-top: 13px; }
+.tuning-actions { display: flex; gap: 8px; margin-top: 20px; }
+.tuning-actions button { flex: 1; background: #16232a; border: 1px solid #2b383f; color: #c5d0d0; border-radius: 5px; padding: 8px 10px; font-size: 12px; }
+.tuning-actions button:hover { border-color: #4b6a6a; }

@@ -1,5 +1,5 @@
 import { H, PLAYER_R, W, clamp, easeOutBack, easeOutCubic, lerp } from './math.ts';
-import { AFFIX_COLORS, AFFIX_LABEL, ENEMY_COLORS, EVENT_COLORS, type Simulation } from './sim.ts';
+import { AFFIX_COLORS, AFFIX_LABEL, ENEMY_COLORS, EVENT_COLORS, REAVER, type Simulation } from './sim.ts';
 import { offerTier } from './upgrades.ts';
 import type { Enemy, Point } from './types.ts';
 
@@ -56,11 +56,11 @@ export function draw(sim: Simulation, canvas: HTMLCanvasElement, c: CanvasRender
   if (rs.shakeEnabled) {
     // Screen shake: a decaying pseudo-random jitter.
     if (sim.shake > 0) {
-      const m = sim.shake * sim.shake * 9;
+      const m = sim.shake * sim.shake * 9 * sim.tuning.shake;
       c.translate(Math.sin(t * 91) * m, Math.cos(t * 113) * m);
     }
     // Impact bump: a tenth of a second, vertical only, on landed hits.
-    if (sim.impact > 0) c.translate(0, Math.sin(t * 90) * sim.impact * 30);
+    if (sim.impact > 0) c.translate(0, Math.sin(t * 90) * sim.impact * 30 * sim.tuning.shake);
   }
 
   const p = sim.status === 'running'
@@ -622,6 +622,64 @@ function drawEnemy(sim: Simulation, c: CanvasRenderingContext2D, e: Enemy, t: nu
       c.beginPath(); c.arc(e.radius * 0.25 + Math.sin(t * 2) * 3, 0, 3 + cast * 2, 0, Math.PI * 2); c.fill();
       break;
     }
+    case 'reaver': {
+      // A hunched blade-carrier. The windup paints a red wedge on the floor that fills as the swing comes;
+      // the swing itself leaves a bright slash arc that fades through the recovery.
+      const reach = REAVER.reach + e.radius + PLAYER_R * 0.6;
+      const winding = e.pattern === 1, recovering = e.pattern === 2;
+      const f = winding ? clamp(1 - e.arming / Math.max(0.01, sim.telegraph(REAVER.windup)), 0, 1) : 0;
+      const face = winding || recovering ? e.facing : e.angle;
+      if (winding) {
+        c.save();
+        c.rotate(face);
+        c.fillStyle = `rgba(255,103,125,${0.1 + f * 0.22})`;
+        c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, reach, -REAVER.arc, REAVER.arc); c.closePath(); c.fill();
+        c.fillStyle = `rgba(255,103,125,${0.25 + f * 0.35})`;
+        c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, reach * f, -REAVER.arc, REAVER.arc); c.closePath(); c.fill();
+        c.strokeStyle = f > 0.78 ? '#ffffff' : '#ff677d';
+        c.lineWidth = f > 0.78 ? 3 : 1.5;
+        c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, reach, -REAVER.arc, REAVER.arc); c.closePath(); c.stroke();
+        c.restore();
+      }
+      if (recovering) {
+        const g = clamp(e.arming / REAVER.recover, 0, 1);
+        c.save();
+        c.rotate(face);
+        c.globalAlpha = g;
+        c.strokeStyle = '#ffe3e8';
+        c.lineWidth = 7 * g + 1;
+        c.lineCap = 'round';
+        c.beginPath(); c.arc(0, 0, reach - 6, -REAVER.arc, REAVER.arc * (1 - g) + REAVER.arc * g * 0.2); c.stroke();
+        c.lineCap = 'butt';
+        c.restore();
+      }
+      c.rotate(face);
+      const lean = winding ? 0.9 + f * 0.25 : recovering ? 1.12 : 1 + Math.sin(e.wobble * 3) * 0.05;
+      c.scale(lean, 1 / lean);
+      c.fillStyle = e.flash > 0 ? '#ffd5d5' : fill;
+      c.strokeStyle = '#ffb3ba';
+      c.lineWidth = 2;
+      polygon(c, 5, e.radius, Math.PI);
+      c.fill(); c.stroke();
+      c.fillStyle = '#3a1420';
+      c.beginPath(); c.arc(e.radius * 0.35, 0, e.radius * 0.28, 0, Math.PI * 2); c.fill();
+      c.fillStyle = winding && f > 0.78 ? '#ffffff' : '#ff4d5e';
+      c.beginPath(); c.arc(e.radius * 0.4, 0, 3, 0, Math.PI * 2); c.fill();
+      // The blade: held back while chasing, drawn further back through the windup, swept forward on release.
+      c.scale(1 / lean, lean);
+      const swing = recovering ? 1 - clamp(e.arming / REAVER.recover, 0, 1) : 0;
+      const bladeAngle = winding ? -1.0 - f * 0.9 : recovering ? -1.9 + Math.min(1, swing * 2.6) * 2.8 : -1.0;
+      c.rotate(bladeAngle);
+      c.strokeStyle = '#ff4d5e';
+      c.lineWidth = 5;
+      c.lineCap = 'round';
+      c.beginPath(); c.moveTo(e.radius * 0.3, 0); c.lineTo(REAVER.reach + e.radius * 0.6, 0); c.stroke();
+      c.strokeStyle = '#ffe3e8';
+      c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(e.radius * 0.5, -1.5); c.lineTo(REAVER.reach + e.radius * 0.5, -1.5); c.stroke();
+      c.lineCap = 'butt';
+      break;
+    }
     case 'warden': {
       c.save();
       c.rotate(e.spin * 0.8);
@@ -716,8 +774,8 @@ function drawBolts(sim: Simulation, c: CanvasRenderingContext2D) {
     c.lineCap = 'round';
     for (let i = 0; i < b.trail.length; i++) {
       const q = b.trail[i], f = (i + 1) / (b.trail.length + 1);
-      c.globalAlpha = f * 0.5;
-      c.lineWidth = (b.heavy ? 9 : 6) * f;
+      c.globalAlpha = f * (b.heavy ? 0.5 : 0.35);
+      c.lineWidth = (b.heavy ? 9 : 11) * f;
       c.strokeStyle = col;
       c.beginPath(); c.moveTo(q.x, q.y); c.lineTo(b.x, b.y); c.stroke();
     }
@@ -729,10 +787,31 @@ function drawBolts(sim: Simulation, c: CanvasRenderingContext2D) {
       c.fillStyle = '#fff5dd';
       c.beginPath(); c.arc(b.x - Math.cos(a) * 3, b.y - Math.sin(a) * 3, 2.5, 0, Math.PI * 2); c.fill();
     } else {
-      c.strokeStyle = col;
-      c.lineWidth = b.crit ? 7 : 5;
-      c.beginPath(); c.moveTo(b.x - Math.cos(a) * 25, b.y - Math.sin(a) * 25); c.lineTo(b.x, b.y); c.stroke();
-      circle(c, b.x, b.y, b.crit ? 7 : 5, '#e5fff7', 2);
+      // Standard bolt: a soft additive glow, a bright core streak and a diamond head pointed along the flight.
+      const dx = Math.cos(a), dy = Math.sin(a), px = -dy, py = dx;
+      const size = b.crit ? 1.35 : 1;
+      c.save();
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = 0.22;
+      c.fillStyle = col;
+      c.beginPath(); c.arc(b.x, b.y, 15 * size, 0, Math.PI * 2); c.fill();
+      c.globalAlpha = 0.9;
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = 2.5 * size;
+      c.beginPath(); c.moveTo(b.x - dx * 30, b.y - dy * 30); c.lineTo(b.x, b.y); c.stroke();
+      c.restore();
+      c.fillStyle = col;
+      c.beginPath();
+      c.moveTo(b.x + dx * 17 * size, b.y + dy * 17 * size);
+      c.lineTo(b.x + px * 5.5 * size, b.y + py * 5.5 * size);
+      c.lineTo(b.x - dx * 9 * size, b.y - dy * 9 * size);
+      c.lineTo(b.x - px * 5.5 * size, b.y - py * 5.5 * size);
+      c.closePath(); c.fill();
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = 1.5;
+      c.stroke();
+      c.fillStyle = '#ffffff';
+      c.beginPath(); c.arc(b.x + dx * 4, b.y + dy * 4, 2.5 * size, 0, Math.PI * 2); c.fill();
     }
     c.lineCap = 'butt';
   }

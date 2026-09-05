@@ -25,7 +25,7 @@ export type Settings = {
 export type Status = 'idle' | 'running' | 'paused' | 'choosing' | 'ended';
 export type WaveState = 'banner' | 'spawning' | 'fighting' | 'clear' | 'none';
 
-export type EnemyKind = 'dummy' | 'drone' | 'archer' | 'bomber' | 'warden' | 'leech' | 'splitter' | 'bulwark' | 'miner' | 'hexer';
+export type EnemyKind = 'dummy' | 'drone' | 'archer' | 'bomber' | 'warden' | 'leech' | 'splitter' | 'bulwark' | 'miner' | 'hexer' | 'reaver';
 
 /**
  * Champion affixes rolled onto ordinary enemies from wave 4. Swift: fast and worth double.
@@ -75,6 +75,11 @@ export type Enemy = Point & {
   life: number;
   /** Bulwark block flash timer (render only). */
   block: number;
+  /** Knockback velocity from landed bolts; decays quickly. */
+  kx: number;
+  ky: number;
+  /** Hit-stun: seconds the enemy is frozen after a landed bolt. */
+  stagger: number;
 };
 
 export type DangerKind = 'line' | 'circle' | 'mine' | 'cloud';

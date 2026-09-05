@@ -4,7 +4,8 @@ import type {
   Affix, Beam, Bolt, Danger, Effect, Enemy, EnemyKind, EventBanner, EventKind, Ghost, GoldOrb, MidEvent, Offer, Omen, Particle,
   Point, QuestKind, Rarity, Relic, Settings, Shard, Shards, Snapshot, Stats, Status, Upgrade, WaveState,
 } from './types.ts';
-import { PRISMATIC_CAP, RARITY_BAG, SHARD_POOL, UPGRADES, activeQuest, computeStats, eligible, offerTier } from './upgrades.ts';
+import { DEFAULT_TUNING, rarityBag, type Tuning } from './tuning.ts';
+import { PRISMATIC_CAP, SHARD_POOL, UPGRADES, activeQuest, computeStats, eligible, offerTier } from './upgrades.ts';
 
 const DRILL_LENGTH = 60;
 const DASH_TIME = 0.15;
@@ -26,6 +27,15 @@ const TEMPO_CRIT = 0.15;
 /** Blade dash: damage multiplier per enemy cut, and how many cuts Riposte may refund. */
 const DASH_STRIKE = 1.2;
 const RIPOSTE_CAP = 3;
+/**
+ * Hit-stun on landed bolts: a small shove away from the player (units per second, decaying) and a brief
+ * freeze. Deliberately minor: enough to buy a step of breathing room while kiting something faster.
+ */
+const KNOCKBACK = 110;
+const KNOCK_DRAG = 12;
+const STAGGER = 0.07;
+/** Reaver: a melee swinger. Reach beyond its radius, windup before the swing, recovery after, and half-arc. */
+export const REAVER = { reach: 64, windup: 0.6, recover: 0.55, arc: 0.95, damage: 14 };
 
 export const EVENT_LABEL: Record<EventKind, string> = { ambush: 'AMBUSH', barrage: 'BARRAGE', bounty: 'BOUNTY', champion: 'CHAMPION', tithe: 'TITHE', cull: 'CULL' };
 export const EVENT_COLORS: Record<EventKind, string> = { ambush: '#ff6b6b', barrage: '#ff9d6b', bounty: '#ffd66b', champion: '#d79bff', tithe: '#8de3ff', cull: '#ffb35c' };
@@ -51,6 +61,7 @@ export const ENEMY_COLORS: Record<EnemyKind, string> = {
   bulwark: '#9aa7c7',
   miner: '#ffb35c',
   hexer: '#d45cff',
+  reaver: '#efe6d3',
 };
 
 export const AFFIX_COLORS: Record<Affix, string> = {
@@ -64,7 +75,7 @@ export const AFFIX_LABEL: Record<Affix, string> = { swift: 'SWIFT', volatile: 'V
 
 /** Wave budget spent per spawn. Drones and Leeches are filler; Bulwarks and Hexers are set pieces. */
 export const KIND_COST: Record<EnemyKind, number> = {
-  dummy: 0, drone: 1, leech: 1, archer: 2, bomber: 2, splitter: 2, miner: 2, bulwark: 3, hexer: 3, warden: 6,
+  dummy: 0, drone: 1, leech: 1, archer: 2, bomber: 2, splitter: 2, miner: 2, reaver: 2, bulwark: 3, hexer: 3, warden: 6,
 };
 
 const DIFF = {
@@ -86,6 +97,8 @@ const angleDiff = (a: number, b: number) => {
  */
 export class Simulation {
   settings: Settings;
+  /** Live tuning knobs (see tuning.ts). Defaults are a no-op; the dev panel and A/B presets change them. */
+  tuning: Tuning = { ...DEFAULT_TUNING };
   status: Status = 'idle';
   rng = new Rng(7);
 
@@ -160,6 +173,8 @@ export class Simulation {
   rarityBag: Rarity[] = [];
   /** Hidden: the wave whose shop is guaranteed to hold one Prismatic. Rolled at run start, never shown. */
   firstPrismaticWave = 0;
+  /** Whether the hidden guarantee has been pinned to an actual shop (drafts may skip waves under tuning). */
+  guaranteePinned = false;
   banished = new Set<string>();
   banishMode = false;
   /** Paid rerolls taken in this shop (price doubles each time). */
@@ -249,6 +264,8 @@ export class Simulation {
   championEvent = 0;
   eventEvent = 0;
   cutEvent = 0;
+  /** A Reaver swung (hit or miss). */
+  swingEvent = 0;
 
   constructor(settings: Settings) {
     this.settings = { ...settings };
@@ -327,7 +344,7 @@ export class Simulation {
       id: this.nextId++, kind, x: p.x, y: p.y, hp: 1, maxHp: 1, radius: 16, speed: 0, flash: 0, slow: 0,
       spawn: 1, cooldown: 0, angle: 0, spin: 0, arming: 0, dead: false, invulnerable: false, contactCd: 0,
       wobble: this.rng.range(0, Math.PI * 2), base: null, pattern: 0, elite: false, gold: 0, burn: 0, burnTime: 0,
-      affix: null, facing: 0, latched: false, generation: 0, shred: 0, wardTimer: 0, life: Infinity, block: 0, ...extra,
+      affix: null, facing: 0, latched: false, generation: 0, shred: 0, wardTimer: 0, life: Infinity, block: 0, kx: 0, ky: 0, stagger: 0, ...extra,
     };
   }
 
@@ -342,9 +359,15 @@ export class Simulation {
     this.nextId = 10;
   }
 
+  /** Apply tuning knobs live. Player-side knobs take effect through the stat sheet; the rest are read each step. */
+  setTuning(patch: Partial<Tuning>) {
+    this.tuning = { ...this.tuning, ...patch };
+    this.recomputeStats();
+  }
+
   recomputeStats() {
     const before = this.stats;
-    this.stats = computeStats(this.settings, this.relics, this.shards, this.questDone);
+    this.stats = computeStats(this.settings, this.relics, this.shards, this.questDone, this.tuning);
     if (this.stats.maxHp > before.maxHp) this.hp += this.stats.maxHp - before.maxHp;
     this.hp = Math.min(this.hp, this.stats.maxHp);
     this.shield = Math.min(this.shield, this.stats.shieldMax);
@@ -399,6 +422,7 @@ export class Simulation {
     this.lowHpTimer = 0;
     this.rarityBag = [];
     this.firstPrismaticWave = this.rng.int(4, 9);
+    this.guaranteePinned = false;
     this.banished = new Set();
     this.banishMode = false;
     this.paidRerolls = 0;
@@ -458,11 +482,12 @@ export class Simulation {
 
   effect(p: Point, color: string, text?: string, size = 19) {
     const life = text ? 0.9 : 0.35;
-    this.effects.push({ x: p.x, y: p.y, color, text, size, life, max: life, rise: text ? 42 : 0 });
+    this.effects.push({ x: p.x, y: p.y, color, text, size: text ? size * this.tuning.textSize : size, life, max: life, rise: text ? 42 : 0 });
   }
 
   burst(p: Point, color: string, count: number, speed = 220, shape: Particle['shape'] = 'shard', size = 4) {
     if (this.particles.length > MAX_PARTICLES) return;
+    count = Math.round(count * this.tuning.particles);
     for (let i = 0; i < count; i++) {
       const a = this.rng.range(0, Math.PI * 2), v = speed * this.rng.range(0.35, 1);
       const life = this.rng.range(0.3, 0.75);
@@ -587,7 +612,12 @@ export class Simulation {
 
   /** Spawn budget: linear early, then super-linear from wave 9 so waves keep pace with a compounding build. */
   budget(n: number) {
-    return Math.round((3 + n * 2.2) * (1 + Math.max(0, n - 8) * 0.05) * this.diff.budget);
+    return Math.round((3 + n * 2.2) * (1 + Math.max(0, n - 8) * 0.05) * this.diff.budget * this.tuning.waveBudget);
+  }
+
+  /** Seconds between spawn trickles inside a wave; tightens with the wave, scaled by the pace knob. */
+  spawnGap() {
+    return Math.max(0.9, 2.6 - this.wave * 0.12) * this.tuning.spawnPace;
   }
 
   /** Late HP multiplier layered on the linear per-kind HP: +6% per wave past 8. */
@@ -599,13 +629,13 @@ export class Simulation {
   wavePool(n: number): EnemyKind[] {
     const pool: EnemyKind[] = ['drone', 'drone', 'drone'];
     if (n >= 2) pool.push('archer', 'archer');
-    if (n >= 3) pool.push('bomber');
+    if (n >= 3) pool.push('bomber', 'reaver');
     if (n >= 4) pool.push('leech', 'leech', 'splitter');
     if (n >= 5) pool.push('archer', 'bomber');
-    if (n >= 6) pool.push('bulwark');
+    if (n >= 6) pool.push('bulwark', 'reaver');
     if (n >= 7) pool.push('miner', 'leech');
     if (n >= 8) pool.push('hexer');
-    if (n >= 10) pool.push('bulwark', 'hexer', 'splitter');
+    if (n >= 10) pool.push('bulwark', 'hexer', 'splitter', 'reaver');
     return pool;
   }
 
@@ -676,7 +706,7 @@ export class Simulation {
   }
 
   drawRarity(): Rarity {
-    if (!this.rarityBag.length) this.rarityBag = this.shuffled(RARITY_BAG);
+    if (!this.rarityBag.length) this.rarityBag = this.shuffled(rarityBag(this.tuning));
     return this.rarityBag.pop()!;
   }
 
@@ -704,7 +734,7 @@ export class Simulation {
 
   /** Portal an enemy in at an arena edge, or at `at` for ambushes. */
   spawnEnemy(kind: EnemyKind, at: Point | null = null) {
-    const n = this.wave, hpMult = this.diff.hp * this.lateHp(n);
+    const n = this.wave, hpMult = this.diff.hp * this.lateHp(n) * this.tuning.enemyHp;
     const p = at ?? this.spawnPoint();
     const def: Partial<Enemy> =
       kind === 'drone' ? { hp: (30 + n * 7) * hpMult, radius: 18, speed: 135 + Math.min(120, n * 6), gold: 1 }
@@ -715,6 +745,7 @@ export class Simulation {
       : kind === 'bulwark' ? { hp: (95 + n * 22) * hpMult, radius: 26, speed: 150, gold: 4, arming: 1.2 }
       : kind === 'miner' ? { hp: (34 + n * 7) * hpMult, radius: 15, speed: 195, gold: 3, cooldown: this.rng.range(1.2, 2) }
       : kind === 'hexer' ? { hp: (40 + n * 8) * hpMult, radius: 17, speed: 165, gold: 4, cooldown: 2.5 }
+      : kind === 'reaver' ? { hp: (42 + n * 8) * hpMult, radius: 19, speed: 190 + Math.min(60, n * 4), gold: 2 }
       : { hp: (260 + n * 80) * hpMult * (n % 6 === 0 ? 1.6 : 1), radius: n % 6 === 0 ? 42 : 34, speed: 105, gold: 12, elite: true, cooldown: 1.6 };
     const e = this.makeEnemy(kind, p, { ...def, maxHp: def.hp, spawn: 0 });
     if (kind === 'bulwark') e.facing = Math.atan2(this.player.y - e.y, this.player.x - e.x);
@@ -972,6 +1003,11 @@ export class Simulation {
     this.banishMode = false;
     this.ascended = false;
     this.offerTier = this.ascendNext ? 'prismatic' : offerTier(this.wave);
+    // Pin the hidden first-Prismatic guarantee to the first shop that actually opens on or after its wave.
+    if (!this.guaranteePinned && this.wave >= this.firstPrismaticWave) {
+      this.firstPrismaticWave = this.wave;
+      this.guaranteePinned = true;
+    }
     this.offers = this.rollOffers();
     this.ascendNext = false;
     this.dryShops = this.offers.every(o => o.rarity === 'silver') ? this.dryShops + 1 : 0;
@@ -1092,28 +1128,35 @@ export class Simulation {
 
   /** Incoming damage scale: difficulty, wave, enrage level (+10% each) and the Cull vulnerability. */
   hazardDamage(base: number) {
-    return base * this.diff.dmg * (1 + this.wave * 0.03) * (1 + this.enrage * 0.1) * (this.vulnerable ? CULL_VULNERABILITY : 1);
+    return base * this.diff.dmg * this.tuning.enemyDamage * (1 + this.wave * 0.03) * (1 + this.enrage * 0.1) * (this.vulnerable ? CULL_VULNERABILITY : 1);
+  }
+
+  /** Telegraph window after the tuning knob: how long a hazard warns before it goes live. */
+  telegraph(delay: number) {
+    return delay * this.tuning.telegraph;
   }
 
   lineDanger(from: Point, angle: number, speed: number, delay: number, damage: number, radius = 13) {
+    const v = speed * this.tuning.projectileSpeed, d = this.telegraph(delay);
     this.dangers.push({
-      x: from.x, y: from.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, delay, age: 0,
-      life: delay + 3.8, radius, kind: 'line', hit: false, resolved: false, damage, trail: [],
+      x: from.x, y: from.y, vx: Math.cos(angle) * v, vy: Math.sin(angle) * v, delay: d, age: 0,
+      life: d + 3.8, radius, kind: 'line', hit: false, resolved: false, damage, trail: [],
     });
   }
 
   circleDanger(at: Point, radius: number, delay: number, damage: number) {
-    this.dangers.push({ x: at.x, y: at.y, vx: 0, vy: 0, delay, age: 0, life: delay + 0.35, radius, kind: 'circle', hit: false, resolved: false, damage, trail: [] });
+    const d = this.telegraph(delay);
+    this.dangers.push({ x: at.x, y: at.y, vx: 0, vy: 0, delay: d, age: 0, life: d + 0.35, radius, kind: 'circle', hit: false, resolved: false, damage, trail: [] });
   }
 
   /** Proximity mine: harmless while arming, then sits until the player steps in or it times out. */
   mineDanger(at: Point) {
-    this.dangers.push({ x: at.x, y: at.y, vx: 0, vy: 0, delay: 0.9, age: 0, life: 16, radius: 46, kind: 'mine', hit: false, resolved: false, damage: 13, trail: [] });
+    this.dangers.push({ x: at.x, y: at.y, vx: 0, vy: 0, delay: this.telegraph(0.9), age: 0, life: 16, radius: 46, kind: 'mine', hit: false, resolved: false, damage: 13, trail: [] });
   }
 
   /** Hexer miasma: forms for a moment, then drifts after the player, draining anyone standing in it. */
   cloudDanger(at: Point, owner: number) {
-    this.dangers.push({ x: at.x, y: at.y, vx: 0, vy: 0, delay: 0.9, age: 0, life: 8.5, radius: 72, kind: 'cloud', hit: false, resolved: false, damage: 11, trail: [], owner });
+    this.dangers.push({ x: at.x, y: at.y, vx: 0, vy: 0, delay: this.telegraph(0.9), age: 0, life: 8.5, radius: 72, kind: 'cloud', hit: false, resolved: false, damage: 11, trail: [], owner });
   }
 
   get mines() {
@@ -1240,7 +1283,8 @@ export class Simulation {
   }
 
   fireAt(target: Enemy, damage: number, crit: boolean, bounces: number, from: Point, heavy = false) {
-    this.bolts.push({ x: from.x, y: from.y, origin: { ...from }, target, damage, crit, bounces, speed: this.hero.weapon === 'cannon' ? 1050 : 1400, trail: [], splash: this.stats.splash, heavy });
+    // Slow enough to be seen leaving the bow; bolts home, so speed is feel rather than accuracy.
+    this.bolts.push({ x: from.x, y: from.y, origin: { ...from }, target, damage, crit, bounces, speed: (this.hero.weapon === 'cannon' ? 820 : 1000) * this.tuning.boltSpeed, trail: [], splash: this.stats.splash, heavy });
   }
 
   release() {
@@ -1343,6 +1387,7 @@ export class Simulation {
     if (e.invulnerable) return;
     e.hp -= dmg;
     this.damageDealt += dmg;
+    this.knock(e, crit ? 1.3 : 1);
     if (crit) {
       this.advanceQuest('crits');
       if (this.stats.shred) e.shred = 3;
@@ -1355,6 +1400,19 @@ export class Simulation {
     if (this.stats.lifesteal) this.heal(this.stats.lifesteal);
     this.impact = Math.max(this.impact, 0.1);
     if (e.hp <= 0) this.kill(e, -e.hp / e.maxHp);
+  }
+
+  /**
+   * Hit-stun: shove the enemy a step away from the player and freeze it for a few frames. Elites, planted
+   * Bulwarks and latched Leeches do not budge; heavy cannon shells shove harder.
+   */
+  knock(e: Enemy, scale = 1) {
+    if (e.elite || e.kind === 'dummy' || e.latched || (e.kind === 'bulwark' && e.pattern === 1)) return;
+    const dx = e.x - this.player.x, dy = e.y - this.player.y, d = Math.hypot(dx, dy) || 1;
+    const force = KNOCKBACK * this.tuning.knockback * scale * (this.hero.weapon === 'cannon' ? 1.6 : 1);
+    e.kx += dx / d * force;
+    e.ky += dy / d * force;
+    e.stagger = Math.max(e.stagger, STAGGER * this.tuning.stagger);
   }
 
   /** `overkill` is excess damage as a fraction of max HP; big overkills get bigger send-offs. */
@@ -1440,6 +1498,19 @@ export class Simulation {
       e.spawn = Math.min(1, e.spawn + dt / SPAWN_TIME);
       return;
     }
+    // Hit-stun: ride out the knockback, then hold still for the stagger before the AI resumes.
+    if (e.kx !== 0 || e.ky !== 0) {
+      e.x = clamp(e.x + e.kx * dt, 30, W - 30);
+      e.y = clamp(e.y + e.ky * dt, 45, H - 45);
+      const k = Math.max(0, 1 - KNOCK_DRAG * dt);
+      e.kx *= k;
+      e.ky *= k;
+      if (Math.abs(e.kx) < 2 && Math.abs(e.ky) < 2) e.kx = e.ky = 0;
+    }
+    if (e.stagger > 0) {
+      e.stagger = Math.max(0, e.stagger - dt);
+      if (!e.latched) return;
+    }
     if (e.affix === 'warded') {
       e.wardTimer -= dt;
       if (e.wardTimer <= 0) {
@@ -1461,7 +1532,7 @@ export class Simulation {
         return;
       }
     }
-    const speed = e.speed * (e.slow > 0 ? 1 - this.stats.slow : 1) * (1 + this.enrage * 0.08);
+    const speed = e.speed * this.tuning.enemySpeed * (e.slow > 0 ? 1 - this.stats.slow : 1) * (1 + this.enrage * 0.08);
     const toP = { x: this.player.x - e.x, y: this.player.y - e.y };
     const dist = Math.hypot(toP.x, toP.y) || 1;
     const dir = { x: toP.x / dist, y: toP.y / dist };
@@ -1517,7 +1588,7 @@ export class Simulation {
       case 'bomber': {
         if (e.arming > 0) {
           e.arming += dt;
-          if (e.arming >= 0.72) {
+          if (e.arming >= this.telegraph(0.72)) {
             // The circle danger spawned when arming began resolves itself; the bomber is spent.
             e.dead = true;
             this.kills++;
@@ -1647,6 +1718,44 @@ export class Simulation {
             this.ring(e, ENEMY_COLORS.hexer, e.radius + 14);
           }
           e.cooldown = 5;
+        }
+        break;
+      }
+      case 'reaver': {
+        // Three beats. Chase; then a windup with the facing locked and the swing arc painted on the floor;
+        // then the swing along that locked facing and a recovery pause. Step out of the arc and it whiffs.
+        if (e.pattern === 1) {
+          e.arming -= dt;
+          if (e.arming <= 0) {
+            this.swingEvent++;
+            const a = Math.atan2(this.player.y - e.y, this.player.x - e.x);
+            const inArc = dist < REAVER.reach + e.radius + PLAYER_R && Math.abs(angleDiff(a, e.facing)) < REAVER.arc;
+            if (inArc && this.invulnerable <= 0) {
+              this.contactHit(e, REAVER.damage);
+            } else {
+              this.dodged++;
+              this.streak++;
+              this.best = Math.max(this.best, this.streak);
+              this.advanceQuest('dodges');
+              this.effect({ x: this.player.x, y: this.player.y - 26 }, '#a2ebcd', 'SIDESTEP', 14);
+            }
+            e.pattern = 2;
+            e.arming = REAVER.recover;
+          }
+          break;
+        }
+        if (e.pattern === 2) {
+          e.arming -= dt;
+          if (e.arming <= 0) e.pattern = 0;
+          break;
+        }
+        e.x += dir.x * speed * dt;
+        e.y += dir.y * speed * dt;
+        if (dist < REAVER.reach + e.radius + PLAYER_R - 8 && e.contactCd <= 0) {
+          e.pattern = 1;
+          e.arming = this.telegraph(REAVER.windup);
+          e.facing = e.angle;
+          this.ring(e, '#ff677d', e.radius + 8);
         }
         break;
       }
@@ -1811,8 +1920,9 @@ export class Simulation {
     if (this.dashing > 0) {
       const step = Math.min(this.dashing, dt);
       this.dashing = Math.max(0, this.dashing - dt);
-      const nx = clamp(this.player.x + this.dashDir.x * DASH_SPEED * step, 40, W - 40);
-      const ny = clamp(this.player.y + this.dashDir.y * DASH_SPEED * step, 55, H - 45);
+      const v = DASH_SPEED * this.tuning.dashDistance;
+      const nx = clamp(this.player.x + this.dashDir.x * v * step, 40, W - 40);
+      const ny = clamp(this.player.y + this.dashDir.y * v * step, 55, H - 45);
       moved = Math.hypot(nx - this.player.x, ny - this.player.y);
       this.player.x = nx;
       this.player.y = ny;
@@ -1890,7 +2000,7 @@ export class Simulation {
     // Bolts
     for (const b of this.bolts) {
       b.trail.push({ x: b.x, y: b.y });
-      if (b.trail.length > 7) b.trail.shift();
+      if (b.trail.length > 12) b.trail.shift();
       const d = distance(b, b.target);
       if (d < b.speed * dt || b.target.dead && d < 30) {
         this.landBolt(b);
@@ -2011,7 +2121,7 @@ export class Simulation {
           this.waveState = 'spawning';
           const initial = Math.min(this.spawnQueue.length, 3 + Math.floor(this.wave / 2));
           for (let i = 0; i < initial; i++) this.spawnEnemy(this.spawnQueue.shift()!);
-          this.spawnTimer = Math.max(0.9, 2.6 - this.wave * 0.12);
+          this.spawnTimer = this.spawnGap();
         }
         break;
       case 'spawning':
@@ -2019,7 +2129,7 @@ export class Simulation {
         if (this.spawnTimer <= 0 && this.spawnQueue.length) {
           const n = Math.min(this.spawnQueue.length, this.rng.int(1, 2));
           for (let i = 0; i < n; i++) this.spawnEnemy(this.spawnQueue.shift()!);
-          this.spawnTimer = Math.max(0.9, 2.6 - this.wave * 0.12);
+          this.spawnTimer = this.spawnGap();
         }
         if (!this.spawnQueue.length) this.waveState = 'fighting';
         break;
@@ -2055,7 +2165,9 @@ export class Simulation {
         this.waveTimer -= dt;
         if (this.waveTimer <= 0) {
           this.waveState = 'none';
-          this.openShop();
+          // Reward cadence: a draft opens every N waves; the waves in between roll straight on.
+          if (this.wave % Math.max(1, Math.round(this.tuning.shopEvery)) === 0) this.openShop();
+          else this.beginWave(this.wave + 1);
         }
         break;
       default:

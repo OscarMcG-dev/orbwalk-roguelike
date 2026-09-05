@@ -84,8 +84,19 @@ export class Arena extends Simulation {
 
   handleKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null;
-    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || target?.isContentEditable || target?.closest?.('input,textarea,select,[contenteditable="true"]')) return;
+    if (target?.isContentEditable || target?.closest?.('input,textarea,select,[contenteditable="true"]')) return;
     const key = e.key?.toLowerCase();
+    // Ctrl/Cmd+S would open the browser's "save page" file picker mid-fight (S is Stop, and a held
+    // modifier is an easy slip). Swallow it and treat it as Stop.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === 's' || e.code === 'KeyS')) {
+      e.preventDefault();
+      if (this.status === 'running') {
+        this.stop();
+        this.notify(this.snapshot());
+      }
+      return;
+    }
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
     const known = ['KeyA', 'KeyS', 'KeyE', 'Space', 'Enter', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit7', 'Digit8', 'Digit9', 'KeyR', 'KeyH', 'KeyF', 'KeyB'];
     const code = (known.includes(e.code) ? e.code : '')
       || ({ a: 'KeyA', s: 'KeyS', e: 'KeyE', ' ': 'Space', enter: 'Enter', escape: 'Escape', '1': 'Digit1', '2': 'Digit2', '3': 'Digit3', '4': 'Digit4', '7': 'Digit7', '8': 'Digit8', '9': 'Digit9', r: 'KeyR', h: 'KeyH', f: 'KeyF', b: 'KeyB' } as Record<string, string>)[key || '']
@@ -220,7 +231,7 @@ export class Arena extends Simulation {
       shot: this.shotEvent, hit: this.hitEvent, kill: this.killEvent, pickup: this.pickupEvent,
       wave: this.waveEvent, dash: this.dashEvent, upgrade: this.upgradeEvent, status: this.status,
       ready: this.dashReadyEvent, quest: this.questEvent, block: this.blockEvent, champion: this.championEvent,
-      event: this.eventEvent, cut: this.cutEvent,
+      event: this.eventEvent, cut: this.cutEvent, swing: this.swingEvent,
     };
     let steps = 0;
     while (this.acc >= STEP && steps < 12) {
@@ -230,19 +241,21 @@ export class Arena extends Simulation {
     }
     if (steps === 12) this.acc = 0;
 
+    const stop = (s: number) => { this.hitStop = Math.max(this.hitStop, s * this.tuning.hitStop); };
     if (before.shot !== this.shotEvent) this.synth.shot();
-    if (before.hit !== this.hitEvent) { this.synth.hurt(); this.hitStop = Math.max(this.hitStop, 0.09); }
-    if (before.kill !== this.killEvent) { this.synth.kill(); this.hitStop = Math.max(this.hitStop, 0.035); }
+    if (before.hit !== this.hitEvent) { this.synth.hurt(); stop(0.09); }
+    if (before.kill !== this.killEvent) { this.synth.kill(); stop(0.035); }
     if (before.pickup !== this.pickupEvent) this.synth.pickup();
     if (before.wave !== this.waveEvent) this.synth.wave();
     if (before.dash !== this.dashEvent) this.synth.dash();
     if (before.upgrade !== this.upgradeEvent) this.synth.upgrade();
     if (before.ready !== this.dashReadyEvent) this.synth.ready();
-    if (before.quest !== this.questEvent) { this.synth.quest(); this.hitStop = Math.max(this.hitStop, 0.12); }
+    if (before.quest !== this.questEvent) { this.synth.quest(); stop(0.12); }
     if (before.block !== this.blockEvent) this.synth.block();
     if (before.champion !== this.championEvent) this.synth.champion();
-    if (before.event !== this.eventEvent) { this.synth.event(); this.hitStop = Math.max(this.hitStop, 0.08); }
-    if (before.cut !== this.cutEvent) { this.synth.cut(); this.hitStop = Math.max(this.hitStop, 0.03); }
+    if (before.event !== this.eventEvent) { this.synth.event(); stop(0.08); }
+    if (before.cut !== this.cutEvent) { this.synth.cut(); stop(0.03); }
+    if (before.swing !== this.swingEvent) this.synth.swing();
     if (before.status !== this.status) {
       if (this.status === 'ended' && this.dead) this.synth.death();
       this.notify(this.snapshot());

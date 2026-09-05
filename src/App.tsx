@@ -4,8 +4,10 @@ import { Arena } from './game/arena.ts';
 import { EMPTY_PROGRESS, HEROES, heroById, isUnlocked, type Progress } from './game/heroes.ts';
 import { registerTrainerTools } from './game/webmcp.ts';
 import { RARITY_LABEL, UPGRADES, baseStats } from './game/upgrades.ts';
+import { DEFAULT_PRESET, matchPreset, normaliseTuning, presetById, type Tuning } from './game/tuning.ts';
 import type { HeroId, Settings, Snapshot } from './game/types.ts';
 import { Bar, Metric, Range, Segmented, Toggle } from './ui/controls.tsx';
+import { TuningPanel } from './ui/tuning.tsx';
 
 const initial: Settings = {
   mode: 'run', drill: 'mixed', difficulty: 'standard', hero: 'marksman',
@@ -26,6 +28,10 @@ const empty: Snapshot = {
 type BestRun = { wave: number; kills: number; time: number; gold: number; date: string; hero?: HeroId };
 const BEST_KEY = 'orbwalk-rogue-best';
 const PROGRESS_KEY = 'orbwalk-rogue-progress';
+const TUNING_KEY = 'orbwalk-rogue-tuning';
+/** `?tuning=iron` opens the tuning panel on that preset; the panel is otherwise a dev-build affair. */
+const params = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
+const showTuning = import.meta.env.DEV || params.has('tuning');
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -47,6 +53,12 @@ export default function App() {
   const [progress, setProgress] = useState<Progress>(EMPTY_PROGRESS);
   const [isNewBest, setNewBest] = useState(false);
   const [justUnlocked, setJustUnlocked] = useState<HeroId | null>(null);
+  const [tuning, setTuning] = useState<Tuning>(() => {
+    const fromUrl = params.get('tuning');
+    if (fromUrl) return { ...presetById(fromUrl).tuning };
+    const stored = loadJson<unknown>(TUNING_KEY, null);
+    return stored ? normaliseTuning(stored) : { ...presetById(DEFAULT_PRESET).tuning };
+  });
   const recorded = useRef(false);
   const config = (patch: Partial<Settings>) => setSettings(s => ({ ...s, ...patch }));
   const pickHero = (hero: HeroId) => config({ hero, ...heroById(hero).profile });
@@ -62,6 +74,7 @@ export default function App() {
     return () => { cleanup(); game.destroy(); };
   }, []);
   useEffect(() => { arena.current?.configure(settings); }, [settings]);
+  useEffect(() => { arena.current?.setTuning(tuning); saveJson(TUNING_KEY, tuning); }, [tuning]);
 
   // Record best run and unlock progress on death.
   useEffect(() => {
@@ -91,6 +104,9 @@ export default function App() {
   const g = arena.current;
   const hpFrac = stats.hp / stats.maxHp;
   const dashReady = stats.dashCharges > 0;
+  const tuningPreset = matchPreset(tuning);
+  const feel = tuningPreset?.id ?? 'custom';
+  const tuningTag = feel === DEFAULT_PRESET ? '' : tuningPreset ? ` · ${tuningPreset.name.toUpperCase()}` : ' · CUSTOM TUNING';
 
   return (
     <main>
@@ -113,7 +129,7 @@ export default function App() {
 
           <div className="arena-shell" id="arena-shell">
             <div className="arena-top">
-              <span>◇ &nbsp;{run ? (stats.wave ? `WAVE ${stats.wave} · ${stats.enemiesLeft} LEFT` : 'ROGUELIKE RUN') : settings.drill === 'mixed' ? 'KITING + DODGING' : settings.drill === 'rhythm' ? 'ATTACK RHYTHM' : 'DODGE PRACTICE'} · {hero.name.toUpperCase()}</span>
+              <span>◇ &nbsp;{run ? (stats.wave ? `WAVE ${stats.wave} · ${stats.enemiesLeft} LEFT` : 'ROGUELIKE RUN') : settings.drill === 'mixed' ? 'KITING + DODGING' : settings.drill === 'rhythm' ? 'ATTACK RHYTHM' : 'DODGE PRACTICE'} · {hero.name.toUpperCase()}{tuningTag}</span>
               <div className="arena-actions">
                 <button aria-label={settings.sound ? 'Mute sound' : 'Enable sound'} onClick={() => config({ sound: !settings.sound })}>{settings.sound ? <Volume2 size={17} /> : <VolumeX size={17} />}</button>
                 <button aria-label="Fullscreen arena" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void document.getElementById('arena-shell')?.requestFullscreen().catch(() => {}); }}><Expand size={17} /></button>
@@ -307,6 +323,12 @@ export default function App() {
           </div>
 
           <div className="setting-section">
+            <div className="eyebrow">FEEL</div>
+            <Segmented value={feel} disabled={locked} onChange={v => setTuning({ ...presetById(v).tuning })} options={[{ value: 'iron', label: 'Iron' }, { value: 'easy', label: 'Easy' }]} />
+            <p className="setting-note">{feel === 'iron' || feel === 'easy' ? presetById(feel).blurb : feel === 'ledger' ? 'Dev reference scale (Ledger). Pick Iron or Easy to play the tuned game.' : 'Custom numbers from the tuning panel.'}</p>
+          </div>
+
+          <div className="setting-section">
             <div className="eyebrow">MARKSMAN PROFILE{run && <em> · BASE</em>}</div>
             <Range label="Attack speed" value={settings.attackSpeed} display={`${settings.attackSpeed.toFixed(2)} /s`} min={0.5} max={2.5} step={0.05} disabled={locked} change={v => config({ attackSpeed: v })} />
             <Range label="Windup" value={settings.windup} display={`${settings.windup}%`} min={15} max={40} step={1} disabled={locked} change={v => config({ windup: v })} />
@@ -320,6 +342,8 @@ export default function App() {
             <Toggle checked={settings.showRange} onChange={v => config({ showRange: v })} label="Show attack range">Show attack range</Toggle>
             <Toggle checked={settings.shake} onChange={v => config({ shake: v })} label="Screen shake">Screen shake</Toggle>
           </div>
+
+          {showTuning && <TuningPanel tuning={tuning} onChange={setTuning} sheet={stats.stats} baseMove={settings.moveSpeed} wave={stats.wave} />}
 
           {run && stats.relics.length > 0 && (
             <div className="setting-section relics">

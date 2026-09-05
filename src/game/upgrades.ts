@@ -1,13 +1,15 @@
 import { heroById } from './heroes.ts';
+import { DEFAULT_TUNING, scaleAugments, type Tuning } from './tuning.ts';
 import type { HeroId, Rarity, Relic, Settings, Shard, ShardKey, Shards, Stats, Upgrade } from './types.ts';
 
-export function baseStats(s: Settings): Stats {
+/** The base sheet: the class profile (scaled by the player tempo knobs) plus the class stat overrides. */
+export function baseStats(s: Settings, t: Tuning = DEFAULT_TUNING): Stats {
   const hero = heroById(s.hero);
   return {
-    attackSpeed: s.attackSpeed,
-    windup: s.windup,
-    moveSpeed: s.moveSpeed,
-    range: s.range,
+    attackSpeed: s.attackSpeed * t.playerAttackSpeed,
+    windup: s.windup * t.playerWindup,
+    moveSpeed: s.moveSpeed * t.playerMove,
+    range: s.range * t.playerRange,
     damage: 20,
     critChance: 0.05,
     critMult: 1.75,
@@ -170,14 +172,20 @@ export function applyShards(stats: Stats, shards: Shards) {
   }
 }
 
-export function computeStats(settings: Settings, relics: Relic[], shards: Shards = {}, questDone = false): Stats {
-  const stats = baseStats(settings);
+/**
+ * Base sheet, then augments (scaled by the augment-power knob), then anvil shards at full strength, then the
+ * attack-speed knee. Shards sit outside the augment scale on purpose: they are a separate, priced system.
+ */
+export function computeStats(settings: Settings, relics: Relic[], shards: Shards = {}, questDone = false, tuning: Tuning = DEFAULT_TUNING): Stats {
+  const base = baseStats(settings, tuning);
+  let stats = { ...base };
   for (const relic of relics) {
     const def = UPGRADES.find(u => u.id === relic.id);
     if (!def) continue;
     for (let i = 0; i < relic.stacks; i++) def.apply(stats);
     if (def.quest && questDone && def.questApply) def.questApply(stats);
   }
+  stats = scaleAugments(base, stats, tuning.augmentPower);
   applyShards(stats, shards);
   if (stats.attackSpeed > ATTACK_SPEED_KNEE) stats.attackSpeed = ATTACK_SPEED_KNEE + (stats.attackSpeed - ATTACK_SPEED_KNEE) * 0.4;
   stats.attackSpeed = Math.min(stats.attackSpeed, 3);
