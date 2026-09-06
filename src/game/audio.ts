@@ -46,9 +46,12 @@ export class Synth {
       case 'garand': this.tone(950, 0.07, { type: 'square', to: 160, gain: 0.05 }); this.noise(0.11, 0.07, { cutoff: 2600 }); this.tone(320, 0.12, { type: 'triangle', to: 120, gain: 0.03, delay: 0.02 }); break;
       case 'pistols': this.tone(n % 2 ? 1350 : 1150, 0.05, { type: 'square', to: 260, gain: 0.035 }); this.noise(0.05, 0.04, { cutoff: 3200 }); break;
       case 'cannon': this.tone(420, 0.12, { type: 'triangle', to: 120, gain: 0.05 }); this.noise(0.1, 0.04); break;
-      default: this.tone(850, 0.08);
+      // Bow: a dry string transient and a short falling thrum. Impact weight belongs to the hit cues, not the release.
+      default: this.noise(0.03, 0.05, { cutoff: 2800 }); this.tone(720, 0.07, { type: 'triangle', to: 380, gain: 0.035 });
     }
   }
+  /** A windup broken by an order: a quiet mechanical tick, never a shot or a hit. */
+  cancelTick() { this.noise(0.018, 0.02, { cutoff: 2000 }); this.tone(540, 0.03, { type: 'square', to: 400, gain: 0.012 }); }
   /** The Garand's en-bloc clip: a bright ringing ping. */
   ping() { this.tone(3350, 0.55, { to: 3250, gain: 0.045 }); this.tone(5200, 0.4, { to: 5050, gain: 0.02, delay: 0.004 }); this.noise(0.025, 0.03, { cutoff: 6000 }); }
   /** Pistol reload: two clicks of a slide racked. */
@@ -76,6 +79,24 @@ export class Synth {
   buy() { this.tone(980, 0.05, { type: 'triangle', to: 1240, gain: 0.03 }); this.noise(0.02, 0.02, { cutoff: 5000 }); }
   swing() { this.tone(240, 0.16, { type: 'sawtooth', to: 90, gain: 0.035 }); this.noise(0.14, 0.035); }
   death() { this.tone(220, 0.8, { type: 'sawtooth', to: 40, gain: 0.06 }); this.noise(0.5, 0.06); }
+  /** Witness: the eye closes (a soft descending hum), the gaze releases (a glassy chime), the player is stunned (a dull clamp). */
+  gaze() { this.tone(520, 0.5, { type: 'sine', to: 260, gain: 0.03 }); }
+  gazeRelease() { this.tone(1800, 0.25, { to: 2400, gain: 0.03 }); this.tone(2700, 0.2, { to: 2600, gain: 0.015, delay: 0.03 }); }
+  stun() { this.tone(140, 0.3, { type: 'square', to: 90, gain: 0.05 }); this.noise(0.15, 0.04, { cutoff: 700 }); }
+  /** Overdraw paid out: a heavier coin than an ordinary purchase. */
+  contract() { this.tone(660, 0.1, { type: 'triangle', to: 880, gain: 0.035 }); this.tone(990, 0.16, { to: 1320, gain: 0.03, delay: 0.09 }); }
+  /** Delayed burst going off. */
+  charge() { this.tone(180, 0.2, { type: 'triangle', to: 60, gain: 0.05 }); this.noise(0.14, 0.05, { cutoff: 900 }); }
+  /** Case reveal: reel tick on each marker crossing, the cassette latch, the dry stop, and a rare resolve. */
+  tick(rate = 1) { this.tone(1400 + rate * 200, 0.025, { type: 'square', to: 1100, gain: 0.02 }); }
+  latch() { this.noise(0.03, 0.05, { cutoff: 2200 }); this.tone(420, 0.06, { type: 'square', to: 300, gain: 0.03 }); this.noise(0.04, 0.04, { delay: 0.12, cutoff: 1800 }); }
+  reelStop() { this.tone(240, 0.09, { type: 'triangle', to: 140, gain: 0.05 }); this.noise(0.05, 0.04, { cutoff: 1200 }); }
+  rare(tier: 'standard' | 'signature' | 'chase') {
+    if (tier === 'standard') { this.tone(880, 0.12, { to: 1100, gain: 0.03 }); return; }
+    const notes = tier === 'chase' ? [523, 659, 784, 1046, 1318] : [659, 880, 1046];
+    notes.forEach((f, i) => this.tone(f, tier === 'chase' ? 0.32 : 0.2, { to: f * 1.01, gain: 0.04, delay: i * 0.09 }));
+    if (tier === 'chase') this.noise(0.4, 0.03, { delay: 0.2, cutoff: 3000 });
+  }
 
   close() { void this.ctx?.close(); }
 }

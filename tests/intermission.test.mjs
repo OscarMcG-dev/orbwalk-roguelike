@@ -131,3 +131,76 @@ test('Snapshot exposes the intermission: claim state, departure target, cadence,
   s.setTuning({ shopEvery: 1 });
   assert.equal(s.nextShopWave, 3);
 });
+
+// ---------------------------------------------------------------- brief 01, slice A: the Refit 3 cadence experiment
+
+test('Cadence 3: refits open after waves 3, 6, 9 and 12 only; the waves between roll straight on, each clear paid exactly once', () => {
+  const s = new Simulation(settings);
+  s.setTuning({ shopEvery: 3 });
+  s.rng.seed = 11;
+  s.start();
+  const visits = [], payouts = {};
+  while (s.wave <= 12) {
+    if (s.status === 'choosing') {
+      visits.push(s.wave);
+      assert.equal(s.snapshot().nextRefitWave, s.wave + 3, 'inside a refit the label names the next one');
+      assert.equal(s.snapshot().nextShopWave, s.wave + 3);
+      if (s.wave === 12) break;
+      s.choose(0); s.continueWave();
+      continue;
+    }
+    assert.equal(s.status, 'running');
+    const expected = Math.ceil(s.wave / 3) * 3;
+    assert.equal(s.snapshot().nextRefitWave, expected, `fighting wave ${s.wave} points at the refit after wave ${expected}`);
+    assert.equal(s.refitAfter(s.wave), s.wave % 3 === 0);
+    const w = s.wave, gold = s.gold, dry = s.dryShops;
+    clearWave(s);
+    payouts[w] = (payouts[w] ?? 0) + (s.gold - gold);
+    if (w % 3 !== 0) assert.equal(s.dryShops, dry, 'pity counts shops, so rolling on touches nothing');
+  }
+  assert.deepEqual(visits, [3, 6, 9, 12]);
+  for (let w = 1; w <= 12; w++) assert.equal(payouts[w], 4 + Math.floor(w * 0.6), `wave ${w} clear paid once`);
+});
+
+test('Cadence 3: an orb left on the floor rides through a straight roll-on and pays exactly once when collected', () => {
+  const s = new Simulation(settings);
+  s.setTuning({ shopEvery: 3 });
+  s.rng.seed = 11;
+  s.start();
+  s.orbs.push({ x: s.player.x + 400, y: s.player.y, vx: 0, vy: 0, value: 7, life: 14, born: s.runTime });
+  const gold = s.gold;
+  clearWave(s);
+  assert.equal(s.status, 'running'); assert.equal(s.wave, 2, 'wave 1 rolls straight into wave 2');
+  assert.equal(s.orbs.length, 1, 'the orb survives the transition');
+  assert.equal(s.gold, gold + 4, 'clear bonus only; the orb is still on the floor');
+  s.orbs[0].x = s.player.x + 5; s.orbs[0].y = s.player.y;
+  s.update(1 / 120);
+  assert.equal(s.gold, gold + 4 + 7); assert.equal(s.orbs.length, 0);
+  s.update(1 / 120);
+  assert.equal(s.gold, gold + 4 + 7, 'collected once');
+});
+
+test('Cadence 3: the preview, the Ascend receipt and the Prismatic draft all name wave 6; Ascend charges and is consumed exactly once', () => {
+  const s = intermission({ wave: 3, gold: 200, shopEvery: 3 });
+  const snap = s.snapshot();
+  assert.equal(snap.nextWave, 4); assert.equal(snap.nextShopWave, 6); assert.equal(snap.nextRefitWave, 6);
+  const cost = s.ascendCost;
+  s.ascend(); s.ascend();
+  assert.equal(s.gold, 200 - cost, 'a second press does not charge');
+  assert.equal(s.snapshot().ascended, true); assert.equal(s.snapshot().nextShopWave, 6, 'the receipt names the actual next refit');
+  s.choose(0); s.continueWave();
+  for (const w of [4, 5]) {
+    assert.equal(s.wave, w); assert.equal(s.snapshot().nextRefitWave, 6);
+    clearWave(s);
+    assert.equal(s.status, 'running', `wave ${w} rolls on`); assert.equal(s.ascendNext, true, 'the promise survives');
+  }
+  assert.equal(s.wave, 6);
+  clearWave(s);
+  assert.equal(s.status, 'choosing'); assert.equal(s.wave, 6); assert.equal(s.offerTier, 'prismatic');
+  assert.ok(s.offers.every(o => o.rarity === 'prismatic'));
+  assert.equal(s.ascendNext, false); assert.equal(s.snapshot().ascended, false, 'consumed; the reserve is open again');
+  assert.equal(s.snapshot().nextShopWave, 9);
+  s.choose(0); s.continueWave();
+  clearWave(s); clearWave(s); clearWave(s);
+  assert.equal(s.status, 'choosing'); assert.equal(s.wave, 9); assert.equal(s.offerTier, 'mixed', 'the Prismatic promise does not carry to the following refit');
+});

@@ -25,7 +25,10 @@ export type Settings = {
 export type Status = 'idle' | 'running' | 'paused' | 'choosing' | 'ended';
 export type WaveState = 'banner' | 'spawning' | 'fighting' | 'clear' | 'none';
 
-export type EnemyKind = 'dummy' | 'drone' | 'archer' | 'bomber' | 'warden' | 'leech' | 'splitter' | 'bulwark' | 'miner' | 'hexer' | 'reaver';
+export type EnemyKind = 'dummy' | 'drone' | 'archer' | 'bomber' | 'warden' | 'leech' | 'splitter' | 'bulwark' | 'miner' | 'hexer' | 'reaver' | 'witness';
+
+/** Witness: a caster whose gaze stuns anyone still facing it at release. Named phases, not a borrowed timer. */
+export type GazePhase = 'approach' | 'windup' | 'recovery';
 
 /**
  * Champion affixes rolled onto ordinary enemies from wave 4. Swift: fast and worth double.
@@ -80,6 +83,9 @@ export type Enemy = Point & {
   ky: number;
   /** Hit-stun: seconds the enemy is frozen after a landed bolt. */
   stagger: number;
+  /** Witness: current gaze phase and seconds left in it. */
+  gazePhase: GazePhase;
+  gazeTimer: number;
 };
 
 export type DangerKind = 'line' | 'circle' | 'mine' | 'cloud';
@@ -118,7 +124,21 @@ export type Bolt = Point & {
   struck?: number[];
   travel?: number;
   maxTravel?: number;
+  /** Chase part (Rifleman final round): after landing, the bolt carries on into one more body at full damage. */
+  punch?: boolean;
+  /** Chase part (Arbalest spool return): the crank refund has been paid for this quarrel. */
+  spooled?: boolean;
 };
+
+/**
+ * The last successful primary release, kept for presentation after the target is gone: a monotonic id, the launch
+ * origin and direction (radians), the weapon and the simulation time it left. Written once per `release()`, read by
+ * the renderer for the launch pose; never consulted by any rule.
+ */
+export type ShotRecord = { id: number; x: number; y: number; angle: number; weapon: string; time: number };
+
+/** Chase part (Cannoneer delayed burst): a friendly ground charge that detonates on enemies after `delay`. */
+export type Charge = Point & { delay: number; age: number; radius: number; damage: number };
 
 export type Beam = { points: Point[]; life: number; max: number; color: string };
 
@@ -160,6 +180,21 @@ export type Omen = Point & { life: number; max: number; kind: 'ambush' | 'bounty
 export type EventBanner = { text: string; sub: string; color: string; life: number; max: number };
 
 export type Ghost = Point & { life: number; angle: number };
+
+/** Confirmed order marker at the click point (League-style): converging chevrons, green for move, red for attack. */
+export type OrderMarker = Point & { kind: 'move' | 'attack' | 'attack-move'; life: number; max: number };
+
+/**
+ * Next-wave contracts (brief 04). Chosen in the intermission, locked on departure, settled once at the wave-clear
+ * boundary. Overdraw: incoming damage x`mult` for the whole next wave; clear it for `reward` gold.
+ */
+export type ContractId = 'overdraw';
+export type ContractOffer = { id: ContractId; mult: number; reward: number; wave: number };
+export type ActiveContract = ContractOffer & { settlementId: string };
+export type ContractReceipt = { id: ContractId; wave: number; reward: number; clearBonus: number; settlementId: string };
+
+/** Debug readout of the last gaze resolution (brief 03): release geometry and the verdict. */
+export type GazeReadout = { wave: number; time: number; distance: number; facingDeg: number; toWitnessDeg: number; offsetDeg: number; exposed: boolean; stunned: boolean };
 
 export type Stats = {
   attackSpeed: number;
@@ -301,6 +336,8 @@ export type Snapshot = {
   claimedOffer: Offer | null;
   nextWave: number;
   nextShopWave: number;
+  /** The wave whose clear opens the next refit: the current wave during a fight when it is a refit wave, else the next one. */
+  nextRefitWave: number;
   /** HP the field repair would restore right now. */
   healAmount: number;
   /** Derived before/after for each anvil shard's stat, in the same order as `anvil`. */
@@ -334,4 +371,22 @@ export type Snapshot = {
   cull: number;
   dead: boolean;
   eliteHp: number | null;
+  /** Brief 03: crowd control on the player and the authoritative facing (radians). */
+  stunned: number;
+  stunSource: string;
+  combatFacing: number;
+  /** A Witness is winding up; `gazeExposed` says whether the player would be stunned if it released now. */
+  gazeActive: boolean;
+  gazeExposed: boolean;
+  lastGaze: GazeReadout | null;
+  /** Brief 04: the contract on offer this intermission (null when none), what is selected, what is active, and the last receipt. */
+  contractOffer: ContractOffer | null;
+  selectedContract: ContractId | null;
+  activeContract: ActiveContract | null;
+  contractReceipt: ContractReceipt | null;
+  /** Brief 05: run settlement inputs for the account economy. */
+  wavesCleared: number;
+  wardenWavesCleared: number;
+  sandbox: boolean;
+  loadout: string[];
 };

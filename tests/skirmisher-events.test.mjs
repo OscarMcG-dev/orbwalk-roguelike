@@ -20,10 +20,10 @@ const arenaWith = (kinds, patch = {}) => {
 
 // ---------------------------------------------------------------- skirmisher
 
-test('Skirmisher unlocks at 200 career kills and layers a close-range, fast, fragile sheet', () => {
+test('Skirmisher is bought in the Armoury (legacy: 200 career kills) and layers a close-range, fast, fragile sheet', () => {
   assert.equal(HEROES.length, 6);
-  assert.equal(isUnlocked('skirmisher', { bestWave: 12, totalKills: 199, runs: 9 }), false);
-  assert.equal(isUnlocked('skirmisher', { bestWave: 1, totalKills: 200, runs: 1 }), true);
+  assert.equal(isUnlocked('skirmisher', { owned: [] }), false);
+  assert.equal(isUnlocked('skirmisher', { owned: ['weapon.skirmisher'] }), true);
   const h = heroById('skirmisher');
   assert.equal(h.weapon, 'blade'); assert.equal(h.tempo, true); assert.equal(h.dashStrike, true); assert.equal(h.dashMode, 'toward');
   const st = computeStats({ ...settings, ...skirmisher }, []);

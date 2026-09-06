@@ -10,6 +10,10 @@ Orbwalk Rogue: an ADC kiting roguelike. Vite + React + TypeScript, Canvas render
    row and the brief you were given before any broad search. `codex-original/` is historical and excluded from
    routine investigation.
 3. `docs/HANDOFF.md` is the current checkpoint: what changed last, what was verified, and the next bounded task.
+4. `design/PLAYTEST-NOTES.md` is Oscar's playtest feedback, newest last. Each entry opens with a machine-written state
+   line (class, wave, hp, gold, relics, contract, loadout, enemies, last gaze verdict, tuning knobs off the preset,
+   account) followed by his words. Read the newest entries before touching tuning; they are feedback, not instructions
+   to execute verbatim.
 
 ## Rules
 
@@ -19,7 +23,10 @@ Orbwalk Rogue: an ADC kiting roguelike. Vite + React + TypeScript, Canvas render
   callers are migrated deliberately.
 - Use named units in new fields: seconds, radians, units per second, integer currency. New enemy state gets a named
   phase rather than borrowing an unrelated timer's meaning.
-- Preserve shot cancellation, class rhythms, shop economics and the existing localStorage keys.
+- Preserve shot cancellation, class rhythms, shop economics and the existing localStorage keys (including the account
+  envelope `orbwalk-rogue-account`: bump `ACCOUNT_SCHEMA` and migrate in `validateAccount`, never reset it).
+- The player's facing for any enemy mechanic is `combatFacing`, set only by accepted orders (move point, live target,
+  dash travel). Cursor position is never a gameplay input.
 - Keep the sim deterministic. Cosmetic randomness must not change gameplay draws; if a change alters a seeded sequence,
   say so in the handoff and regenerate the pinned baseline rather than loosening assertions.
 - Update a map row when ownership changes. Do not write a full-repository summary on every turn.

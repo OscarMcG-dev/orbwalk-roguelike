@@ -24,7 +24,9 @@ export class Arena extends Simulation {
   inside = false;
   heldRight = false;
   listeners: (() => void)[] = [];
-  rs: RenderState = { visAngle: 0, visAim: 0, stride: 0, time: 0, inside: false, shakeEnabled: true };
+  rs: RenderState = { visAngle: 0, visAim: 0, stride: 0, time: 0, inside: false, shakeEnabled: true, reducedMotion: false, draw: 0, cursorPulse: 0, cursorKind: 'move' };
+  /** Dev mode: N opens the playtest note. Set by the React layer. */
+  onNote: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, settings: Settings, notify: (s: Snapshot) => void) {
     super(settings);
@@ -63,8 +65,9 @@ export class Arena extends Simulation {
         e.preventDefault();
         this.heldRight = true;
         this.move(this.cursor);
+        this.confirm('move', this.cursor);
       } else if (e.button === 0 && this.armed) {
-        this.attack(this.cursor);
+        this.confirmAttack(this.cursor);
       }
     });
     on(window, 'keydown', e => this.handleKey(e as KeyboardEvent), true);
@@ -105,10 +108,17 @@ export class Arena extends Simulation {
       return;
     }
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-    const known = ['KeyA', 'KeyS', 'KeyE', 'Space', 'Enter', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit7', 'Digit8', 'Digit9', 'KeyR', 'KeyH', 'KeyF', 'KeyB'];
+    const known = ['KeyA', 'KeyS', 'KeyE', 'Space', 'Enter', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit7', 'Digit8', 'Digit9', 'KeyR', 'KeyH', 'KeyF', 'KeyB', 'KeyC', 'KeyN'];
     const code = (known.includes(e.code) ? e.code : '')
-      || ({ a: 'KeyA', s: 'KeyS', e: 'KeyE', ' ': 'Space', enter: 'Enter', escape: 'Escape', '1': 'Digit1', '2': 'Digit2', '3': 'Digit3', '4': 'Digit4', '7': 'Digit7', '8': 'Digit8', '9': 'Digit9', r: 'KeyR', h: 'KeyH', f: 'KeyF', b: 'KeyB' } as Record<string, string>)[key || '']
-      || ({ 65: 'KeyA', 83: 'KeyS', 69: 'KeyE', 32: 'Space', 13: 'Enter', 27: 'Escape', 49: 'Digit1', 50: 'Digit2', 51: 'Digit3', 52: 'Digit4', 55: 'Digit7', 56: 'Digit8', 57: 'Digit9', 82: 'KeyR', 72: 'KeyH', 70: 'KeyF', 66: 'KeyB' } as Record<number, string>)[e.keyCode];
+      || ({ a: 'KeyA', s: 'KeyS', e: 'KeyE', ' ': 'Space', enter: 'Enter', escape: 'Escape', '1': 'Digit1', '2': 'Digit2', '3': 'Digit3', '4': 'Digit4', '7': 'Digit7', '8': 'Digit8', '9': 'Digit9', r: 'KeyR', h: 'KeyH', f: 'KeyF', b: 'KeyB', c: 'KeyC', n: 'KeyN' } as Record<string, string>)[key || '']
+      || ({ 65: 'KeyA', 83: 'KeyS', 69: 'KeyE', 32: 'Space', 13: 'Enter', 27: 'Escape', 49: 'Digit1', 50: 'Digit2', 51: 'Digit3', 52: 'Digit4', 55: 'Digit7', 56: 'Digit8', 57: 'Digit9', 82: 'KeyR', 72: 'KeyH', 70: 'KeyF', 66: 'KeyB', 67: 'KeyC', 78: 'KeyN' } as Record<number, string>)[e.keyCode];
+
+    // Dev mode: N opens a playtest note from anywhere in the run (the note itself pauses the fight).
+    if (code === 'KeyN' && this.onNote) {
+      e.preventDefault();
+      this.onNote();
+      return;
+    }
 
     if (code === 'Enter' && (this.status === 'idle' || this.status === 'ended')) {
       e.preventDefault();
@@ -124,10 +134,13 @@ export class Arena extends Simulation {
       else if (code === 'KeyF') { e.preventDefault(); this.buyFourth(); }
       else if (code === 'KeyB') { e.preventDefault(); this.toggleBanish(); }
       else if (code === 'KeyA') { e.preventDefault(); this.ascend(); }
+      // C toggles the next-wave contract (Overdraw) while it is on offer.
+      else if (code === 'KeyC') { e.preventDefault(); this.selectContract(this.selectedContract ? null : this.contractOffer?.id ?? null); }
       else if (code === 'Escape' && this.banishMode) { e.preventDefault(); this.toggleBanish(); }
-      // Enter departs once the draft is claimed. A focused shop button already activates on Enter; let that click
-      // stand alone rather than also firing the global command.
-      else if (code === 'Enter' && (target?.tagName !== 'BUTTON' || target.dataset.depart !== undefined)) { e.preventDefault(); this.continueWave(); }
+      // Enter departs once the draft is claimed. A focused control (button, tab, disclosure summary, link) already
+      // activates on Enter; let that stand alone rather than also firing the global command. Only the departure
+      // button itself may double as the global depart.
+      else if (code === 'Enter' && (target?.dataset?.depart !== undefined || !target?.closest?.('button,summary,a,[role="tab"]'))) { e.preventDefault(); this.continueWave(); }
       this.notify(this.snapshot());
       return;
     }
@@ -144,7 +157,7 @@ export class Arena extends Simulation {
     if (code === 'KeyA') {
       e.preventDefault();
       this.heldRight = false;
-      if (this.settings.quick) { if (this.inside) this.attack(this.cursor); }
+      if (this.settings.quick) { if (this.inside) this.confirmAttack(this.cursor); }
       else this.armed = true;
       this.canvas.focus({ preventScroll: true });
       this.notify(this.snapshot());
@@ -166,6 +179,22 @@ export class Arena extends Simulation {
       if (this.armed) this.armed = false;
       else this.togglePause();
     }
+  }
+
+  /** Attack order from a click or the one-key A: the marker is red on a live target, dashed orange for attack-move. */
+  confirmAttack(p: Point) {
+    const hadTarget = this.acquire(p) !== null;
+    this.attack(p);
+    this.confirm(hadTarget ? 'attack' : 'attack-move', p);
+  }
+
+  /** Visual confirmation of an accepted order: a marker at the point and a pulse on the cursor. */
+  confirm(kind: 'move' | 'attack' | 'attack-move', p: Point) {
+    if (this.status !== 'running') return;
+    this.mark(kind, p);
+    if (!this.rs) return; // headless tests build an Arena without a render state
+    this.rs.cursorPulse = 0.22;
+    this.rs.cursorKind = kind;
   }
 
   /** A run or drill is on screen: running, paused or in the shop. Browser chords are swallowed while true. */
@@ -190,6 +219,9 @@ export class Arena extends Simulation {
     this.settings = { ...s };
     this.synth.enabled = s.sound;
     this.rs.shakeEnabled = s.shake;
+    // Reduced motion: the Screen shake toggle off, or the OS preference. Drops camera shake and body deformation;
+    // release and hit signals stay.
+    this.rs.reducedMotion = !s.shake || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     if (restart) {
       this.recomputeStats();
       this.hp = this.stats.maxHp;
@@ -253,7 +285,8 @@ export class Arena extends Simulation {
       wave: this.waveEvent, dash: this.dashEvent, upgrade: this.upgradeEvent, status: this.status,
       ready: this.dashReadyEvent, quest: this.questEvent, block: this.blockEvent, champion: this.championEvent,
       event: this.eventEvent, cut: this.cutEvent, swing: this.swingEvent, ping: this.pingEvent, rack: this.rackEvent, loaded: this.loadedEvent,
-      buy: this.buyEvent,
+      buy: this.buyEvent, gaze: this.gazeEvent, gazeRelease: this.gazeReleaseEvent, stun: this.stunEvent, contract: this.contractEvent, charge: this.chargeEvent,
+      cancel: this.cancelEvent,
     };
     let steps = 0;
     while (this.acc >= STEP && steps < 12) {
@@ -265,6 +298,7 @@ export class Arena extends Simulation {
 
     const stop = (s: number) => { this.hitStop = Math.max(this.hitStop, s * this.tuning.hitStop); };
     if (before.shot !== this.shotEvent) this.synth.shot(this.hero.weapon, this.attackCount);
+    if (before.cancel !== this.cancelEvent) this.synth.cancelTick();
     if (before.ping !== this.pingEvent) { this.synth.ping(); stop(0.05); }
     if (before.rack !== this.rackEvent) this.synth.rack();
     if (before.loaded !== this.loadedEvent) this.synth.loaded();
@@ -282,6 +316,11 @@ export class Arena extends Simulation {
     if (before.cut !== this.cutEvent) { this.synth.cut(); stop(0.03); }
     if (before.swing !== this.swingEvent) this.synth.swing();
     if (before.buy !== this.buyEvent) this.synth.buy();
+    if (before.gaze !== this.gazeEvent) this.synth.gaze();
+    if (before.gazeRelease !== this.gazeReleaseEvent) this.synth.gazeRelease();
+    if (before.stun !== this.stunEvent) { this.synth.stun(); stop(0.1); }
+    if (before.contract !== this.contractEvent) this.synth.contract();
+    if (before.charge !== this.chargeEvent) { this.synth.charge(); stop(0.04); }
     if (before.status !== this.status) {
       if (this.status === 'ended' && this.dead) this.synth.death();
       this.notify(this.snapshot());
@@ -302,8 +341,14 @@ export class Arena extends Simulation {
     const running = this.status === 'running' && this.destination !== null && this.windupLeft <= 0 && this.dashing <= 0;
     if (running) this.rs.stride += real * this.stats.moveSpeed * 0.055;
     else this.rs.stride = Math.round(this.rs.stride / Math.PI) * Math.PI;
+    // Anticipation pose: follows the real windup while it runs, snaps open on a release (the hand goes forward with
+    // the bolt), and unwinds over ~80 ms real time when the windup was cancelled. Pause holds it because windupLeft holds.
+    if (this.windupLeft > 0) this.rs.draw = 1 - this.windupLeft / this.windupTotal;
+    else if (before.shot !== this.shotEvent) this.rs.draw = 0;
+    else this.rs.draw = Math.max(0, this.rs.draw - real / 0.08);
     this.rs.time = t;
     this.rs.inside = this.inside;
+    this.rs.cursorPulse = Math.max(0, this.rs.cursorPulse - real);
 
     draw(this, this.canvas, this.ctx, this.acc / STEP, this.rs);
     if (t - this.lastUI > 65) {
@@ -311,6 +356,30 @@ export class Arena extends Simulation {
       this.lastUI = t;
     }
     this.schedule();
+  }
+
+  /**
+   * Dev server only: save the current canvas as design/style/<name>.png through the style-frames middleware in
+   * vite.config.ts, so a style judgement keeps the frame it was made on. Resolves to the file path.
+   */
+  async saveFrame(name: string, region?: { x: number; y: number; w: number; h: number }): Promise<string> {
+    let source: HTMLCanvasElement = this.canvas;
+    if (region) {
+      // Crop in arena units through the same viewport transform draw() uses, magnified up to 4x for inspection.
+      const cw = this.canvas.width, ch = this.canvas.height, scale = Math.min(cw / W, ch / H);
+      const ox = (cw - W * scale) / 2, oy = (ch - H * scale) / 2;
+      const k = Math.min(4, 1400 / (region.w * scale));
+      const crop = document.createElement('canvas');
+      crop.width = Math.round(region.w * scale * k);
+      crop.height = Math.round(region.h * scale * k);
+      const cc = crop.getContext('2d')!;
+      cc.imageSmoothingEnabled = true;
+      cc.drawImage(this.canvas, ox + region.x * scale, oy + region.y * scale, region.w * scale, region.h * scale, 0, 0, crop.width, crop.height);
+      source = crop;
+    }
+    const res = await fetch('/__style-frame', { method: 'POST', body: JSON.stringify({ name, dataUrl: source.toDataURL('image/png') }) });
+    if (!res.ok) throw new Error(await res.text());
+    return ((await res.json()) as { file: string }).file;
   }
 
   destroy() {

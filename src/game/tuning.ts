@@ -52,6 +52,25 @@ export type Tuning = {
   spawnPace: number;
   /** Spawn budget per wave. */
   waveBudget: number;
+  // Experiments (briefs 03, 04, 05). Absolute values, not multipliers; excluded from preset matching.
+  /** Witness gaze: effective radius in arena units, telegraph base in seconds (the 0.85 s floor is fixed), half-angle in degrees, stun seconds, cooldown seconds, debut wave. */
+  witnessRadius: number;
+  witnessWindup: number;
+  witnessArc: number;
+  witnessStun: number;
+  witnessCooldown: number;
+  witnessDebut: number;
+  /** Overdraw contract: incoming damage multiplier, gold on clear, first wave it can be signed for. */
+  overdrawMult: number;
+  overdrawGold: number;
+  overdrawFromWave: number;
+  /** Account credits: per cleared wave, extra per cleared Warden wave, cap per run; case price; tier odds in percent. */
+  creditsPerWave: number;
+  creditsPerWarden: number;
+  creditsCap: number;
+  caseCost: number;
+  chaseOdds: number;
+  signatureOdds: number;
 };
 
 export type TuningKey = keyof Tuning;
@@ -62,9 +81,15 @@ export const DEFAULT_TUNING: Tuning = {
   augmentPower: 1, shopEvery: 1, bagSilver: 13, bagGold: 6, bagPrismatic: 1,
   boltSpeed: 1, dashDistance: 1, knockback: 1, stagger: 1, hitStop: 1, shake: 1, textSize: 1, particles: 1,
   spawnPace: 1, waveBudget: 1,
+  witnessRadius: 300, witnessWindup: 1.15, witnessArc: 70, witnessStun: 0.35, witnessCooldown: 4.5, witnessDebut: 7,
+  overdrawMult: 1.35, overdrawGold: 18, overdrawFromWave: 4,
+  creditsPerWave: 4, creditsPerWarden: 8, creditsCap: 60, caseCost: 100, chaseOdds: 1, signatureOdds: 19,
 };
 
-export type TuningGroup = 'player' | 'enemy' | 'draft' | 'feel' | 'pace';
+export type TuningGroup = 'player' | 'enemy' | 'draft' | 'feel' | 'pace' | 'witness' | 'contract' | 'arsenal';
+
+/** Knob groups that belong to the current experiments. They do not count toward preset matching (Iron stays Iron). */
+export const EXPERIMENT_GROUPS: TuningGroup[] = ['witness', 'contract', 'arsenal'];
 
 export type TuningKnob = {
   key: TuningKey;
@@ -105,14 +130,41 @@ export const TUNING_KNOBS: TuningKnob[] = [
   { key: 'particles', label: 'Particles', group: 'feel', min: 0, max: 2.5, step: 0.1, format: pct, note: 'Burst and puff density.' },
   { key: 'spawnPace', label: 'Spawn gap', group: 'pace', min: 0.3, max: 2.5, step: 0.05, format: pct, note: 'Time between spawn trickles inside a wave. Lower is a denser, faster wave.' },
   { key: 'waveBudget', label: 'Wave size', group: 'pace', min: 0.4, max: 2, step: 0.05, format: pct, note: 'Spawn budget per wave. Debuts and Wardens are unaffected.' },
+  { key: 'witnessRadius', label: 'Gaze radius', group: 'witness', min: 150, max: 480, step: 10, format: v => `${v} units`, note: 'Centre to centre. Standing exactly on the line is safe.' },
+  { key: 'witnessWindup', label: 'Gaze windup', group: 'witness', min: 0.5, max: 2.5, step: 0.05, format: v => `${v.toFixed(2)} s`, note: 'Telegraph base before the eye opens. Scaled by the telegraph knob, never below 0.85 s.' },
+  { key: 'witnessArc', label: 'Facing arc', group: 'witness', min: 20, max: 120, step: 5, format: v => `±${v}°`, note: 'How far off the Witness you can face and still be caught. Smaller is more forgiving.' },
+  { key: 'witnessStun', label: 'Stun length', group: 'witness', min: 0.1, max: 1.2, step: 0.05, format: v => `${v.toFixed(2)} s`, note: 'Control lock on a caught player. No damage. 1.5 s of immunity follows.' },
+  { key: 'witnessCooldown', label: 'Gaze cooldown', group: 'witness', min: 2, max: 9, step: 0.5, format: v => `${v.toFixed(1)} s`, note: 'Rest between gazes, after the 1.1 s recovery.' },
+  { key: 'witnessDebut', label: 'Debut wave', group: 'witness', min: 3, max: 15, step: 1, format: v => `wave ${v}`, note: 'First wave a Witness can appear (guaranteed that wave; at most one alive). Events are held on the debut wave.' },
+  { key: 'overdrawMult', label: 'Overdraw damage', group: 'contract', min: 1, max: 2.2, step: 0.05, format: v => `×${v.toFixed(2)}`, note: 'Incoming damage multiplier for the contracted wave. Snapshotted when you depart.' },
+  { key: 'overdrawGold', label: 'Overdraw payout', group: 'contract', min: 0, max: 60, step: 1, format: v => `${v} gold`, note: 'Paid once at wave clear, on top of the ordinary clear bonus.' },
+  { key: 'overdrawFromWave', label: 'Offered from', group: 'contract', min: 2, max: 10, step: 1, format: v => `wave ${v}`, note: 'The first wave that can be contracted. Never the Witness debut wave.' },
+  { key: 'creditsPerWave', label: 'Credits per wave', group: 'arsenal', min: 0, max: 12, step: 1, format: v => `${v}`, note: 'Account credits per cleared wave, settled once when the run ends.' },
+  { key: 'creditsPerWarden', label: 'Warden bonus', group: 'arsenal', min: 0, max: 24, step: 1, format: v => `+${v}`, note: 'Extra credits per cleared Warden wave.' },
+  { key: 'creditsCap', label: 'Credits cap', group: 'arsenal', min: 10, max: 240, step: 5, format: v => `${v} / run`, note: 'Most a single run can settle.' },
+  { key: 'caseCost', label: 'Case price', group: 'arsenal', min: 20, max: 300, step: 5, format: v => `${v} cr`, note: 'One item per case. Duplicates refund 20.' },
+  { key: 'chaseOdds', label: 'Chase odds', group: 'arsenal', min: 0, max: 10, step: 0.5, format: v => `${v}%`, note: 'Per case. The 60th case without a Chase guarantees one regardless.' },
+  { key: 'signatureOdds', label: 'Signature odds', group: 'arsenal', min: 0, max: 50, step: 1, format: v => `${v}%`, note: 'Per case; the rest is Standard.' },
 ];
 
-export type TuningPreset = { id: string; name: string; tag: string; blurb: string; tuning: Tuning };
+/** Knobs that belong to an experiment group. */
+export const isExperimentKnob = (key: TuningKey) => EXPERIMENT_GROUPS.includes(TUNING_KNOBS.find(k => k.key === key)?.group ?? 'player');
+
+export type TuningPreset = { id: string; name: string; tag: string; blurb: string; tuning: Tuning; /** A labelled experiment rather than a control; Iron and Easy stay the controls. */ experiment?: boolean };
+
+/** Iron: Oscar's chosen feel after AB-001. Named so experiments can derive from it by changing one number. */
+const IRON: Tuning = {
+  ...DEFAULT_TUNING,
+  playerMove: 0.8, playerAttackSpeed: 0.65, playerWindup: 0.95, playerRange: 0.6,
+  enemySpeed: 0.95, enemyHp: 1.2, enemyDamage: 1.3, projectileSpeed: 1.4, telegraph: 0.65,
+  augmentPower: 0.75, shopEvery: 2, bagSilver: 22, bagGold: 7, bagPrismatic: 2,
+};
 
 /**
  * Presets. Ledger is the authored v0.4 scale (every knob at 1), kept as the dev reference. Iron is the
  * shipped default: Oscar's chosen feel after AB-001 (design/AB-001-tempo.md). Easy sits halfway back
  * toward Ledger for players who want the old, more forgiving kite; it is the player-facing "easy mode".
+ * Refit 3 is the brief 01 cadence experiment: Iron with a refit after every third wave instead of every second.
  */
 export const TUNING_PRESETS: TuningPreset[] = [
   {
@@ -123,12 +175,7 @@ export const TUNING_PRESETS: TuningPreset[] = [
   {
     id: 'iron', name: 'Iron', tag: 'B',
     blurb: 'The intended feel. Short reach, slow deliberate shots, fast enemy fire and short warnings. Weaker augments, a draft every second wave, rarer Prismatics.',
-    tuning: {
-      ...DEFAULT_TUNING,
-      playerMove: 0.8, playerAttackSpeed: 0.65, playerWindup: 0.95, playerRange: 0.6,
-      enemySpeed: 0.95, enemyHp: 1.2, enemyDamage: 1.3, projectileSpeed: 1.4, telegraph: 0.65,
-      augmentPower: 0.75, shopEvery: 2, bagSilver: 22, bagGold: 7, bagPrismatic: 2,
-    },
+    tuning: { ...IRON },
   },
   {
     id: 'easy', name: 'Easy', tag: 'C',
@@ -140,6 +187,11 @@ export const TUNING_PRESETS: TuningPreset[] = [
       augmentPower: 1, shopEvery: 1, bagSilver: 13, bagGold: 6, bagPrismatic: 1,
       knockback: 1.4, stagger: 1.4,
     },
+  },
+  {
+    id: 'iron3', name: 'Refit 3', tag: 'X', experiment: true,
+    blurb: 'EXPERIMENT (brief 01). Iron in every number except cadence: a refit after every third wave (3, 6, 9, 12), in step with the Wardens. Four free drafts and four repairs by wave 12 instead of six; the same gold, prices and rarity odds.',
+    tuning: { ...IRON, shopEvery: 3 },
   },
 ];
 
@@ -168,7 +220,15 @@ export function easyBlend(level: number): Tuning {
 
 export const presetById = (id: string) => TUNING_PRESETS.find(p => p.id === id) ?? TUNING_PRESETS[0];
 
-export const sameTuning = (a: Tuning, b: Tuning) => (Object.keys(DEFAULT_TUNING) as TuningKey[]).every(k => Math.abs(a[k] - b[k]) < 1e-9);
+/** Same feel: every non-experiment knob matches. Experiment knobs (Witness, contract, arsenal) never move a preset off its name. */
+export const sameTuning = (a: Tuning, b: Tuning) => (Object.keys(DEFAULT_TUNING) as TuningKey[]).every(k => isExperimentKnob(k) || Math.abs(a[k] - b[k]) < 1e-9);
+
+/** Knobs that differ from the defaults, for the playtest note snapshot. */
+export const tuningDiff = (t: Tuning, from: Tuning = DEFAULT_TUNING): Partial<Tuning> => {
+  const out: Partial<Tuning> = {};
+  for (const k of Object.keys(DEFAULT_TUNING) as TuningKey[]) if (Math.abs(t[k] - from[k]) > 1e-9) out[k] = t[k];
+  return out;
+};
 
 /** Which preset these values match, or null when they are custom. */
 export const matchPreset = (t: Tuning): TuningPreset | null => TUNING_PRESETS.find(p => sameTuning(p.tuning, t)) ?? null;

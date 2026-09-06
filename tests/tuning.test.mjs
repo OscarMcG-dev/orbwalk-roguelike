@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Simulation } from '../src/game/sim.ts';
 import { DEFAULT_PRESET, DEFAULT_TUNING, TUNING_PRESETS, kiteMargins, matchPreset, normaliseTuning, presetById, rarityBag, scaleAugments } from '../src/game/tuning.ts';
-import { RARITY_BAG, baseStats, computeStats } from '../src/game/upgrades.ts';
+import { RARITY_BAG, baseStats, computeStats, offerTier } from '../src/game/upgrades.ts';
 import { autopilotRun, baseSettings, manyRuns, median } from './harness.mjs';
 
 const relic = (id, stacks = 1, rarity = 'silver') => ({ id, name: id, stacks, rarity, icon: '', tags: [] });
@@ -88,6 +88,22 @@ test('Draft cadence: drafts every second wave halve the shops, and the hidden fi
   assert.equal(dry.offered.prismatic, 1);
 });
 
+test('Cadence 3 (Refit 3): four refits by wave 12, the hidden first Prismatic still lands by wave 9, and the tier sequence is recorded', () => {
+  // Iron's slower pilot needs more sim time than the default cap to reach wave 13.
+  const runs = manyRuns(8, { target: 13, seed: 4242, maxTime: 4000, tuning: presetById('iron3').tuning });
+  for (const r of runs) {
+    assert.equal(r.wave, 13);
+    assert.equal(r.shops, 4, `seed ${r.seed}: ${r.shops} refits`);
+    assert.ok(r.prismatics >= 1, `seed ${r.seed}: no Prismatic`);
+    assert.equal(r.firstPrismaticWave % 3, 0, 'the guarantee pins to a refit that actually opens');
+    assert.ok(r.firstPrismaticWave <= 9, 'on or before the wave-9 refit');
+  }
+  // offerTier(wave) at the refit waves. Cadence 3 never opens a Gold-floor draft (waves 4, 8, 16, 20); the Prismatic
+  // drafts at 12 and 24 still land on refits. Recorded here, not rebalanced (brief 01).
+  assert.deepEqual([3, 6, 9, 12, 15, 18, 21, 24].map(offerTier), ['mixed', 'mixed', 'mixed', 'prismatic', 'mixed', 'mixed', 'mixed', 'prismatic']);
+  assert.deepEqual([2, 4, 6, 8, 10, 12].map(offerTier), ['mixed', 'gold', 'mixed', 'gold', 'mixed', 'prismatic'], 'Iron, for comparison');
+});
+
 test('Feel and pace knobs: bolt speed, text size, shove, freeze, particles, dash distance, spawn gap and wave size', () => {
   const make = tuning => { const sim = new Simulation(baseSettings()); sim.setTuning(tuning); sim.status = 'running'; return sim; };
   const target = sim => { const e = sim.spawnEnemy('drone', { x: sim.player.x + 200, y: sim.player.y }); e.spawn = 1; e.speed = 0; return e; };
@@ -132,7 +148,19 @@ test('Presets: Iron is exactly the feel Oscar chose after AB-001, and it is the 
   assert.ok(kiteMargins(b, 325, 4).leech > 0 && kiteMargins(b, 325, 6).leech < 0);
   assert.equal(matchPreset(b)?.id, 'iron');
   assert.equal(matchPreset({ ...b, enemySpeed: 1.21 }), null);
-  assert.equal(TUNING_PRESETS.length, 3);
+  assert.equal(TUNING_PRESETS.length, 4);
+  // Refit 3 (brief 01, slice A): a labelled experiment, Iron with one number changed. Iron and Easy stay the controls.
+  const x = presetById('iron3');
+  assert.equal(x.experiment, true); assert.ok(x.blurb.startsWith('EXPERIMENT'));
+  assert.deepEqual(x.tuning, { ...b, shopEvery: 3 });
+  assert.equal(matchPreset(x.tuning)?.id, 'iron3'); assert.equal(matchPreset(b)?.id, 'iron', 'Iron stays Iron');
+  assert.ok(!presetById('iron').experiment && !presetById('easy').experiment);
+  // A round-trip through the persistence path (JSON, then normalise) keeps the cadence and the preset identity.
+  const rt = normaliseTuning(JSON.parse(JSON.stringify(x.tuning)));
+  assert.deepEqual(rt, x.tuning); assert.equal(matchPreset(rt)?.id, 'iron3');
+  const sim3 = new Simulation(baseSettings()); sim3.setTuning(rt); sim3.start();
+  sim3.wave = 3; sim3.enemies = []; sim3.spawnQueue = []; sim3.openShop();
+  assert.equal(sim3.nextShopWave, 6); assert.equal(sim3.snapshot().nextRefitWave, 6);
   // Easy is the gentle floor of the pressure slider: softer than the authored scale on the enemy side, a draft every wave, the 1-Prismatic bag.
   const a = presetById('ledger').tuning, c = presetById('easy').tuning;
   assert.ok(c.enemyDamage < a.enemyDamage && c.enemyHp < a.enemyHp && c.enemySpeed < a.enemySpeed && c.telegraph > a.telegraph);

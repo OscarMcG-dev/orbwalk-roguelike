@@ -1,5 +1,7 @@
 import { H, PLAYER_R, W, clamp, easeOutBack, easeOutCubic, lerp } from './math.ts';
-import { AFFIX_COLORS, AFFIX_LABEL, ENEMY_COLORS, EVENT_COLORS, REAVER, type Simulation } from './sim.ts';
+import type { FinishId } from './arsenal.ts';
+import { WEAPON_PRESENTATION, type Hero } from './heroes.ts';
+import { AFFIX_COLORS, AFFIX_LABEL, ENEMY_COLORS, EVENT_COLORS, REAVER, WITNESS, type Simulation } from './sim.ts';
 import { offerTier } from './upgrades.ts';
 import type { Enemy, Point } from './types.ts';
 
@@ -15,7 +17,31 @@ export type RenderState = {
   /** Whether the pointer is inside the arena. */
   inside: boolean;
   shakeEnabled: boolean;
+  /** Screen shake off or the OS prefers reduced motion: no camera shake, no body deformation; release and hit signals stay. */
+  reducedMotion: boolean;
+  /** Eased anticipation pose 0..1 (Arena.frame): the real windup fraction while winding, unwinding after a cancel. */
+  draw: number;
+  /** Seconds left on the cursor's order-confirmation pulse, and which order it confirms. */
+  cursorPulse: number;
+  cursorKind: 'move' | 'attack' | 'attack-move';
 };
+
+const ORDER_COLORS = { move: '#63e7d0', attack: '#ff6b5c', 'attack-move': '#ff9d6b' } as const;
+
+/**
+ * Machine-world materials (brief "visual identity", see design/STYLE.md): every actor is built from a muted slate
+ * casing, one dark inset and a warm off-white working edge. Class and enemy colours stay as accents: an identity
+ * light, a cape, a visor, an outline. Red means hostile danger and is never a whole weapon.
+ */
+export const MACHINE = { casing: '#3b4652', casingLight: '#6b7682', inset: '#171d23', edge: '#e8dfc8' } as const;
+
+/** Shortest-arc blend between two angles. */
+function mixAngle(from: number, to: number, k: number) {
+  let d = to - from;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return from + d * k;
+}
 
 function circle(c: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, width = 1) {
   c.beginPath();
@@ -73,6 +99,8 @@ export function draw(sim: Simulation, canvas: HTMLCanvasElement, c: CanvasRender
   drawDangers(sim, c);
   drawOmens(sim, c, t);
   drawGhosts(sim, c);
+  drawOrders(sim, c);
+  drawCharges(sim, c, t);
   const lastOne = sim.isRun && sim.alive.length === 1 && sim.spawnQueue.length === 0;
   for (const e of sim.enemies) if (!e.dead) drawEnemy(sim, c, e, t, lastOne);
   drawBeams(sim, c);
@@ -83,7 +111,53 @@ export function draw(sim: Simulation, canvas: HTMLCanvasElement, c: CanvasRender
   drawEffects(sim, c);
   drawOverlays(sim, c, t);
   drawHud(sim, c, t);
+  if (sim.proof) drawProofInsets(sim, c, p, rs, t);
   drawCursor(sim, c, rs);
+}
+
+/**
+ * Dev-only style proof (brief "visual identity", slice A): the same draw calls again at a magnification, once in colour
+ * and once in grayscale, so materials, outline scale and danger readability can be judged next to the 1x frame without
+ * a second renderer. The view centres between the player and the nearest Reaver. Reads the sim; never writes it.
+ */
+function drawProofInsets(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: RenderState, t: number) {
+  const reaver = sim.enemies.filter(e => e.kind === 'reaver' && !e.dead).sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0];
+  const focus = reaver ? { x: (p.x + reaver.x) / 2, y: (p.y + reaver.y) / 2 } : p;
+  const span = reaver ? Math.hypot(reaver.x - p.x, reaver.y - p.y) : 0;
+  const pw = 400, ph = 236, x0 = W - pw - 30, zoom = clamp((pw - 90) / (span + 120), 1.6, 3);
+  const panels: { y: number; gray: boolean; label: string }[] = [
+    { y: 100, gray: false, label: `STYLE PROOF · ${zoom.toFixed(1)}×` },
+    { y: 100 + ph + 14, gray: true, label: 'GRAYSCALE · danger must still read' },
+  ];
+  for (const panel of panels) {
+    c.save();
+    c.beginPath(); c.rect(x0, panel.y, pw, ph); c.clip();
+    c.fillStyle = '#0b1418';
+    c.fillRect(x0, panel.y, pw, ph);
+    if (panel.gray) c.filter = 'grayscale(1)';
+    c.save();
+    c.translate(x0 + pw / 2, panel.y + ph / 2);
+    c.scale(zoom, zoom);
+    c.translate(-focus.x, -focus.y);
+    drawDangers(sim, c);
+    drawOrbs(sim, c, t);
+    for (const e of sim.enemies) if (!e.dead) drawEnemy(sim, c, e, t, false);
+    drawBolts(sim, c);
+    drawPlayer(sim, c, p, rs, t);
+    drawParticles(sim, c);
+    drawEffects(sim, c);
+    c.restore();
+    c.filter = 'none';
+    c.restore();
+    c.strokeStyle = '#e8dfc8';
+    c.lineWidth = 1.5;
+    c.strokeRect(x0, panel.y, pw, ph);
+    c.fillStyle = '#0b1418';
+    c.fillRect(x0, panel.y - 1, 250, 16);
+    c.fillStyle = '#e8dfc8';
+    c.font = 'bold 11px monospace';
+    c.fillText(panel.label, x0 + 6, panel.y + 11);
+  }
 }
 
 function drawBackground(sim: Simulation, c: CanvasRenderingContext2D, t: number) {
@@ -656,29 +730,79 @@ function drawEnemy(sim: Simulation, c: CanvasRenderingContext2D, e: Enemy, t: nu
       }
       c.rotate(face);
       const lean = winding ? 0.9 + f * 0.25 : recovering ? 1.12 : 1 + Math.sin(e.wobble * 3) * 0.05;
-      c.scale(lean, 1 / lean);
-      c.fillStyle = e.flash > 0 ? '#ffd5d5' : fill;
-      c.strokeStyle = '#ffb3ba';
+      // A squat cutting machine: a broad slate pentagon, wider than tall, with the off-white working edge (the kind's
+      // colour) as its outline, a dark inset plate on the forward face and the eye as the only red on the body.
+      c.save();
+      c.scale(lean * 1.25, 0.95 / lean);
+      c.fillStyle = e.flash > 0 ? '#f7f2f4' : MACHINE.casing;
+      c.strokeStyle = color;
       c.lineWidth = 2;
       polygon(c, 5, e.radius, Math.PI);
       c.fill(); c.stroke();
-      c.fillStyle = '#3a1420';
-      c.beginPath(); c.arc(e.radius * 0.35, 0, e.radius * 0.28, 0, Math.PI * 2); c.fill();
+      c.restore();
+      c.fillStyle = MACHINE.inset;
+      c.beginPath(); c.roundRect(e.radius * 0.05, -e.radius * 0.42, e.radius * 0.72, e.radius * 0.84, 2); c.fill();
       c.fillStyle = winding && f > 0.78 ? '#ffffff' : '#ff4d5e';
-      c.beginPath(); c.arc(e.radius * 0.4, 0, 3, 0, Math.PI * 2); c.fill();
-      // The blade: held back while chasing, drawn further back through the windup, swept forward on release.
-      c.scale(1 / lean, lean);
+      c.beginPath(); c.arc(e.radius * 0.45, 0, 3, 0, Math.PI * 2); c.fill();
+      // Shoulder pivot on the blade side. The blade is rigid to it: held back while chasing, drawn further back
+      // through the windup, swept across the front on release. Its tip stays inside the painted wedge (`reach`),
+      // which alone owns the danger; nothing here stretches the apparent lethal reach.
+      const pivot = { x: e.radius * 0.2, y: -e.radius * 0.35 };
+      c.fillStyle = MACHINE.inset;
+      c.beginPath(); c.arc(pivot.x, pivot.y, e.radius * 0.3, 0, Math.PI * 2); c.fill();
+      circle(c, pivot.x, pivot.y, e.radius * 0.3, color, 1.5);
+      c.translate(pivot.x, pivot.y);
       const swing = recovering ? 1 - clamp(e.arming / REAVER.recover, 0, 1) : 0;
       const bladeAngle = winding ? -1.0 - f * 0.9 : recovering ? -1.9 + Math.min(1, swing * 2.6) * 2.8 : -1.0;
       c.rotate(bladeAngle);
-      c.strokeStyle = '#ff4d5e';
-      c.lineWidth = 5;
-      c.lineCap = 'round';
-      c.beginPath(); c.moveTo(e.radius * 0.3, 0); c.lineTo(REAVER.reach + e.radius * 0.6, 0); c.stroke();
-      c.strokeStyle = '#ffe3e8';
-      c.lineWidth = 1.5;
-      c.beginPath(); c.moveTo(e.radius * 0.5, -1.5); c.lineTo(REAVER.reach + e.radius * 0.5, -1.5); c.stroke();
-      c.lineCap = 'butt';
+      drawSlabBlade(c, e.radius, reach - Math.hypot(pivot.x, pivot.y) - PLAYER_R * 0.5, recovering && swing < 0.4 ? 1 - swing / 0.4 : 0, e.flash > 0);
+      break;
+    }
+    case 'witness': {
+      // One pale mask on a dark upright body. The eye closes to charge and opens on release. During the windup the
+      // gaze radius sits on the floor around the caster (it does not track the player) with a filling eye marker.
+      const winding = e.gazePhase === 'windup', recovering = e.gazePhase === 'recovery';
+      const total = Math.max(WITNESS.windupFloor, sim.telegraph(sim.tuning.witnessWindup));
+      const f = winding ? clamp(1 - e.gazeTimer / total, 0, 1) : 0;
+      const late = winding && f > 0.75;
+      if (winding) {
+        const R = sim.tuning.witnessRadius;
+        c.save();
+        c.fillStyle = `rgba(207,198,232,${0.035 + f * 0.05})`;
+        c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.fill();
+        c.setLineDash([12, 8]);
+        c.lineDashOffset = -t * 40;
+        circle(c, 0, 0, R, late ? '#ffffff' : ENEMY_COLORS.witness, late ? 3.5 : 2);
+        c.setLineDash([]);
+        c.lineDashOffset = 0;
+        // Progress: an arc that closes clockwise just inside the radius, plus the eye marker above the caster.
+        c.strokeStyle = late ? '#ffffff' : '#efe9f8';
+        c.lineWidth = 3;
+        c.beginPath(); c.arc(0, 0, R - 8, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); c.stroke();
+        drawEyeMarker(c, 0, -e.radius - 30, f, late && Math.sin(t * 30) > 0);
+        c.restore();
+      }
+      c.rotate(e.angle);
+      c.fillStyle = e.flash > 0 ? '#ffffff' : '#241c33';
+      c.strokeStyle = ENEMY_COLORS.witness;
+      c.lineWidth = 2;
+      c.beginPath(); c.roundRect(-e.radius * 0.95, -e.radius * 0.72, e.radius * 1.8, e.radius * 1.44, 5); c.fill(); c.stroke();
+      // The mask, forward on the body; the eye is a dark lens that the lid closes over as the charge builds.
+      c.fillStyle = '#efe9f8';
+      c.beginPath(); c.ellipse(e.radius * 0.35, 0, e.radius * 0.5, e.radius * 0.64, 0, 0, Math.PI * 2); c.fill();
+      const open = winding ? 1 - f : recovering ? 1 : 0.6 + Math.sin(t * 3 + e.id) * 0.1;
+      c.fillStyle = '#1a1024';
+      c.beginPath(); c.ellipse(e.radius * 0.42, 0, e.radius * 0.22, e.radius * 0.32 * Math.max(0.05, open), 0, 0, Math.PI * 2); c.fill();
+      if (late) {
+        // Final part of the tell: a flickering white slit, readable without colour or sound.
+        c.fillStyle = Math.sin(t * 30) > 0 ? '#ffffff' : '#7a6a9a';
+        c.fillRect(e.radius * 0.18, -1.5, e.radius * 0.48, 3);
+      }
+      if (recovering) {
+        const g = clamp(e.gazeTimer / WITNESS.recover, 0, 1);
+        c.fillStyle = `rgba(255,255,255,${g * 0.9})`;
+        c.beginPath(); c.arc(e.radius * 0.42, 0, e.radius * 0.17 + (1 - g) * 3, 0, Math.PI * 2); c.fill();
+      }
       break;
     }
     case 'warden': {
@@ -721,6 +845,120 @@ function drawEnemy(sim: Simulation, c: CanvasRenderingContext2D, e: Enemy, t: nu
     c.textAlign = 'center';
     c.fillText(AFFIX_LABEL[e.affix], e.x, e.y - e.radius - 20);
     c.textAlign = 'left';
+  }
+}
+
+/**
+ * The Reaver's blade in blade-local space: the shoulder pivot is the origin, the blade points along +x and `L` is
+ * the distance from pivot to tip. A short dark grip, then one wide single-edge slab with a chamfered end and a
+ * pale cutting edge along the leading (+y) side. `trail` (0..1) adds a very short edge trail during the strike.
+ */
+function drawSlabBlade(c: CanvasRenderingContext2D, r: number, L: number, trail: number, flash: boolean) {
+  const grip = r * 0.5, spine = -4, edge = 9, cham = 13;
+  c.lineCap = 'butt';
+  c.lineJoin = 'miter';
+  if (trail > 0) {
+    c.save();
+    c.globalAlpha = trail * 0.5;
+    c.strokeStyle = MACHINE.edge;
+    c.lineWidth = 3;
+    c.lineCap = 'round';
+    c.beginPath(); c.arc(0, 0, L - 2, -0.5 * trail - 0.04, -0.04); c.stroke();
+    c.restore();
+  }
+  // Grip: a short dark block with a wrap.
+  c.fillStyle = MACHINE.inset;
+  c.fillRect(0, -4, grip, 8);
+  c.strokeStyle = '#5a5560';
+  c.lineWidth = 1;
+  for (let x = 2.5; x < grip - 1; x += 3) { c.beginPath(); c.moveTo(x, -4); c.lineTo(x, 4); c.stroke(); }
+  // Slab: flat, one straight spine, the end chamfered from the spine down to the edge.
+  c.beginPath();
+  c.moveTo(grip, spine); c.lineTo(L - cham, spine); c.lineTo(L, edge - 1); c.lineTo(L - 1, edge); c.lineTo(grip, edge);
+  c.closePath();
+  c.fillStyle = flash ? '#f7f2f4' : MACHINE.casingLight;
+  c.fill();
+  c.strokeStyle = MACHINE.inset;
+  c.lineWidth = 1;
+  c.stroke();
+  // One dark groove along the spine so the slab reads as a machined plate.
+  c.strokeStyle = MACHINE.inset;
+  c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(grip + 3, spine + 2.5); c.lineTo(L - cham - 1, spine + 2.5); c.stroke();
+  // Cutting edge: pale, along the belly and up the chamfer.
+  c.strokeStyle = MACHINE.edge;
+  c.lineWidth = 1.8;
+  c.beginPath(); c.moveTo(grip + 1, edge); c.lineTo(L - 1, edge); c.lineTo(L, edge - 1); c.lineTo(L - cham, spine); c.stroke();
+}
+
+/** Witness eye marker: a lens whose lid closes as `f` climbs; a bright slit when the release is imminent. */
+function drawEyeMarker(c: CanvasRenderingContext2D, x: number, y: number, f: number, flash: boolean) {
+  c.save();
+  c.translate(x, y);
+  c.fillStyle = '#0b1418cc';
+  c.beginPath(); c.roundRect(-20, -11, 40, 22, 6); c.fill();
+  c.fillStyle = '#efe9f8';
+  c.beginPath(); c.moveTo(-14, 0); c.quadraticCurveTo(0, -12, 14, 0); c.quadraticCurveTo(0, 12, -14, 0); c.closePath(); c.fill();
+  c.fillStyle = '#1a1024';
+  c.beginPath(); c.arc(0, 0, 4.5, 0, Math.PI * 2); c.fill();
+  // Lid closes from the top as the charge builds.
+  c.fillStyle = flash ? '#ffffff' : '#7a6a9a';
+  c.beginPath(); c.moveTo(-14, 0); c.quadraticCurveTo(0, -12, 14, 0); c.lineTo(14, 0); c.quadraticCurveTo(0, -12 + 24 * f, -14, 0); c.closePath(); c.fill();
+  c.restore();
+}
+
+/**
+ * Confirmed order markers (League-style): a ring that shrinks onto the click point with four chevrons converging on
+ * it. Green for a move, red for an attack on a target, dashed orange for an attack-move to a point.
+ */
+function drawOrders(sim: Simulation, c: CanvasRenderingContext2D) {
+  for (const o of sim.orders) {
+    const f = 1 - o.life / o.max; // 0 at the click, 1 when gone
+    const col = ORDER_COLORS[o.kind];
+    const r = 26 - f * 16;
+    c.save();
+    c.translate(o.x, o.y);
+    c.globalAlpha = f < 0.15 ? f / 0.15 : 1 - Math.max(0, (f - 0.55) / 0.45);
+    c.strokeStyle = col;
+    c.lineWidth = o.kind === 'move' ? 2 : 2.5;
+    if (o.kind === 'attack-move') c.setLineDash([5, 5]);
+    c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.stroke();
+    c.setLineDash([]);
+    // Chevrons slide inward along the diagonals.
+    const d = 30 - f * 20;
+    c.lineWidth = 2.5;
+    c.lineCap = 'round';
+    for (let i = 0; i < 4; i++) {
+      c.save();
+      c.rotate(Math.PI / 4 + i * Math.PI / 2);
+      c.beginPath(); c.moveTo(d + 6, -6); c.lineTo(d, 0); c.lineTo(d + 6, 6); c.stroke();
+      c.restore();
+    }
+    c.lineCap = 'butt';
+    if (o.kind !== 'move') {
+      // Attack orders also stamp a small cross at the point.
+      c.beginPath(); c.moveTo(-4, 0); c.lineTo(4, 0); c.moveTo(0, -4); c.lineTo(0, 4); c.stroke();
+    }
+    c.restore();
+  }
+}
+
+/** Delayed-burst charges: an amber fuse ring that closes, then the burst itself is a particle ring from the sim. */
+function drawCharges(sim: Simulation, c: CanvasRenderingContext2D, t: number) {
+  for (const ch of sim.charges) {
+    const f = clamp(ch.age / ch.delay, 0, 1);
+    c.save();
+    c.fillStyle = `rgba(255,210,122,${0.06 + f * 0.1})`;
+    c.beginPath(); c.arc(ch.x, ch.y, ch.radius, 0, Math.PI * 2); c.fill();
+    c.setLineDash([6, 6]);
+    circle(c, ch.x, ch.y, ch.radius, '#ffd27a88', 1.5);
+    c.setLineDash([]);
+    c.strokeStyle = f > 0.7 && Math.sin(t * 40) > 0 ? '#ffffff' : '#ffd27a';
+    c.lineWidth = 3;
+    c.beginPath(); c.arc(ch.x, ch.y, 10, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2); c.stroke();
+    c.fillStyle = '#3a2410';
+    c.beginPath(); c.arc(ch.x, ch.y, 5, 0, Math.PI * 2); c.fill();
+    c.restore();
   }
 }
 
@@ -921,12 +1159,24 @@ function drawPlayer(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: 
 
   // --- Upper body, in aim space ----------------------------------------------------------
   c.save();
-  c.rotate(rs.visAim);
-  const kickMax = hero.weapon === 'cannon' ? 9 : 5, kickT = hero.weapon === 'cannon' ? 0.18 : 0.12;
-  const kick = sim.recoil > 0 ? -(sim.recoil / kickT) * kickMax : 0;
+  // Launch pose: for `hold` seconds after a release the torso points exactly where the bolt left, then eases back to
+  // the smoothed aim over the rest of the recoil. Simulation time, so pause holds it and the shot record survives
+  // the target's death. Recoil peaks at once and eases out (f squared); reduced motion keeps 60% of the kick.
+  const pres = WEAPON_PRESENTATION[hero.weapon];
+  const shot = sim.lastShot;
+  const shotAge = shot ? sim.runTime - shot.time : Infinity;
+  const launch = shotAge < pres.hold ? 1 : clamp(1 - (shotAge - pres.hold) / Math.max(0.01, pres.recoil - pres.hold), 0, 1);
+  c.rotate(shot && launch > 0 ? mixAngle(rs.visAim, shot.angle, launch) : rs.visAim);
+  const kickMax = sim.runLoadout.steadyStock && hero.weapon === 'garand' ? 2 : pres.kick;
+  const kickF = sim.recoil > 0 ? clamp(sim.recoil / pres.recoil, 0, 1) : 0;
+  const kick = -kickF * kickF * kickMax * (rs.reducedMotion ? 0.6 : 1);
   c.translate(kick, 0);
-  const lean = dashing ? 1.3 : 1 + (moving ? 0.06 : 0) + breath;
+  const lean = rs.reducedMotion ? 1 : dashing ? 1.3 : 1 + (moving ? 0.06 : 0) + breath;
   c.scale(lean, 1 / lean);
+  // Anticipation: the eased draw (Arena.rs.draw) rotates and compresses the shoulders a little toward the string.
+  // Feet, collision centre and the bow arm stay where they are.
+  const drawFrac = rs.draw;
+  if (drawFrac > 0 && !rs.reducedMotion) { c.rotate(-0.1 * drawFrac); c.scale(1 - 0.05 * drawFrac, 1 + 0.03 * drawFrac); }
   if (hero.weapon === 'bow') {
     // Quiver on the back shoulder.
     c.save();
@@ -974,221 +1224,34 @@ function drawPlayer(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: 
     c.fillStyle = dark;
     for (const s of [-1, 1]) c.fillRect(-9, s * 9 - 3, 6, 6);
   }
-  // Shoulders and torso; the cannoneer is broader.
+  // Torso: one slate casing plate with an off-white working edge, a dark inset on the forward face and a small
+  // identity light in the class colour. The cannoneer's plate is broader. Hurt blinks the edge white.
   const torsoW = hero.weapon === 'cannon' ? 13 : 11, torsoH = hero.weapon === 'cannon' ? 17 : 15;
-  c.fillStyle = skin;
-  c.beginPath(); c.ellipse(0, 0, torsoW, torsoH, 0, 0, Math.PI * 2); c.fill();
-  c.fillStyle = trim;
-  c.beginPath(); c.ellipse(3, 0, 5, 9, 0, 0, Math.PI * 2); c.fill();
-  c.strokeStyle = dark;
+  const edge = hurtBlink ? '#ffffff' : dashing ? '#bffcff' : MACHINE.edge;
+  c.fillStyle = hurtBlink ? '#ffffff' : MACHINE.casing;
+  c.beginPath(); c.roundRect(-torsoW, -torsoH, torsoW * 2, torsoH * 2, 5); c.fill();
+  c.strokeStyle = edge;
   c.lineWidth = 1.5;
-  c.beginPath(); c.ellipse(0, 0, torsoW, torsoH, 0, 0, Math.PI * 2); c.stroke();
+  c.stroke();
+  c.fillStyle = MACHINE.inset;
+  c.beginPath(); c.roundRect(-1, -torsoH * 0.55, torsoW * 0.75, torsoH * 1.1, 2); c.fill();
+  c.fillStyle = sim.hurtFlash > 0 ? '#ffd6dc' : col.bolt;
+  c.beginPath(); c.arc(4, 0, 2.5, 0, Math.PI * 2); c.fill();
   if (hero.weapon === 'cannon') {
     // Shoulder pads.
-    c.fillStyle = dark;
+    c.fillStyle = MACHINE.inset;
     for (const s of [-1, 1]) { c.beginPath(); c.ellipse(-3, s * 14, 5, 3.5, 0, 0, Math.PI * 2); c.fill(); }
   }
 
-  if (hero.weapon === 'bow') {
-    const gripX = 17;
-    const pull = windupFrac * 14;
-    c.strokeStyle = skin;
-    c.lineWidth = 4;
-    c.lineCap = 'round';
-    c.beginPath(); c.moveTo(4, -9); c.lineTo(gripX, -2); c.stroke();
-    c.beginPath(); c.moveTo(2, 9); c.lineTo(gripX - 3 - pull, 1); c.stroke();
-    c.lineCap = 'butt';
-    c.strokeStyle = '#e9d7a5';
-    c.lineWidth = 2.5;
-    c.beginPath(); c.arc(gripX - 2, 0, 15, -Math.PI * 0.42, Math.PI * 0.42); c.stroke();
-    const tipY = 15 * Math.sin(Math.PI * 0.42), tipX = gripX - 2 + 15 * Math.cos(Math.PI * 0.42);
-    c.strokeStyle = sim.flash > 0.08 ? '#ffffff' : '#c9f7e9';
-    c.lineWidth = sim.flash > 0.08 ? 2 : 1;
-    c.beginPath(); c.moveTo(tipX, -tipY); c.lineTo(gripX - 3 - pull, 0); c.lineTo(tipX, tipY); c.stroke();
-    if (sim.windupLeft > 0) {
-      c.strokeStyle = '#f6d895';
-      c.lineWidth = 2;
-      c.beginPath(); c.moveTo(gripX - 3 - pull, 0); c.lineTo(gripX + 14, 0); c.stroke();
-      c.fillStyle = '#ffffff';
-      c.beginPath(); c.moveTo(gripX + 18, 0); c.lineTo(gripX + 12, -3); c.lineTo(gripX + 12, 3); c.closePath(); c.fill();
-      c.fillStyle = '#ff8f6b';
-      c.beginPath(); c.moveTo(gripX - 3 - pull, 0); c.lineTo(gripX - 7 - pull, -3); c.lineTo(gripX - 7 - pull, 3); c.closePath(); c.fill();
-    } else if (sim.flash > 0.08) {
-      c.fillStyle = '#ffffffaa';
-      c.beginPath(); c.arc(gripX + 14, 0, (sim.flash - 0.08) * 120, 0, Math.PI * 2); c.fill();
-    }
-  } else if (hero.weapon === 'blade') {
-    // Throwing blades: the lead hand cocks back through the windup, then snaps forward on release.
-    const cock = windupFrac * 10;
-    const tempo = sim.tempoReady;
-    c.strokeStyle = skin;
-    c.lineWidth = 4;
-    c.lineCap = 'round';
-    // Off hand forward, blade hand back.
-    c.beginPath(); c.moveTo(4, -9); c.lineTo(15, -5); c.stroke();
-    c.beginPath(); c.moveTo(2, 9); c.lineTo(9 - cock, 12 + cock * 0.4); c.stroke();
-    c.lineCap = 'butt';
-    // Held blade in the off hand.
-    c.fillStyle = '#e9eef5';
-    c.beginPath(); c.moveTo(15, -5); c.lineTo(27, -9); c.lineTo(17, -1); c.closePath(); c.fill();
-    // Blade being wound up in the throwing hand.
-    if (sim.windupLeft > 0) {
-      c.save();
-      c.translate(9 - cock, 12 + cock * 0.4);
-      c.rotate(-0.6 - windupFrac * 0.8);
-      c.fillStyle = tempo ? col.capeTrim : '#e9eef5';
-      c.beginPath(); c.moveTo(0, 0); c.lineTo(13, -3); c.lineTo(2, 3); c.closePath(); c.fill();
-      c.restore();
-    } else if (sim.flash > 0.06) {
-      // Release: a slash arc in front of the hand.
-      c.strokeStyle = sim.tempoFlash > 0 ? col.capeTrim : '#ffffffcc';
-      c.lineWidth = 3;
-      c.beginPath(); c.arc(14, 0, 14 + (0.14 - sim.flash) * 90, -0.6, 0.6); c.stroke();
-    }
-    // Tempo cue: a bright spark at the throwing hand while the window is open.
-    if (tempo && sim.status === 'running') {
-      c.fillStyle = `rgba(255,159,176,${0.5 + Math.sin(t * 20) * 0.4})`;
-      c.beginPath(); c.arc(11, 12, 3.5, 0, Math.PI * 2); c.fill();
-    }
-  } else if (hero.weapon === 'crossbow') {
-    // Heavy crossbow held level: stock, a wide bow at the front, a string that sits forward until the
-    // crank rewinds it, and a quarrel on the rail only once it is loaded.
-    const crank = sim.crank;
-    const bowX = 20;
-    c.strokeStyle = skin;
-    c.lineWidth = 4;
-    c.lineCap = 'round';
-    c.beginPath(); c.moveTo(4, -9); c.lineTo(15, -3); c.stroke();
-    c.beginPath(); c.moveTo(2, 9); c.lineTo(8, 2); c.stroke();
-    c.lineCap = 'butt';
-    c.fillStyle = '#2a3552';
-    c.fillRect(-2, -3, bowX + 8, 6);
-    c.fillStyle = '#4a5f8f';
-    c.fillRect(2, -1.5, bowX + 2, 3);
-    // Bow limbs.
-    c.strokeStyle = '#9fb8e8';
-    c.lineWidth = 3;
-    c.beginPath(); c.moveTo(bowX, -18); c.quadraticCurveTo(bowX + 6, 0, bowX, 18); c.stroke();
-    // String: forward when spent, drawn back to the nut when cranked.
-    const nutX = bowX - 12 * crank;
-    c.strokeStyle = crank >= 1 ? '#ffffff' : '#c9d6f5';
-    c.lineWidth = crank >= 1 ? 1.6 : 1;
-    c.beginPath(); c.moveTo(bowX, -18); c.lineTo(nutX, 0); c.lineTo(bowX, 18); c.stroke();
-    // Crank handle turns as it winds.
-    c.save();
-    c.translate(0, 6);
-    c.rotate(crank * Math.PI * 4);
-    c.strokeStyle = '#e3ecff';
-    c.lineWidth = 2;
-    c.beginPath(); c.moveTo(-4, 0); c.lineTo(4, 0); c.stroke();
-    c.restore();
-    if (crank >= 1 && sim.flash <= 0.08) {
-      // Loaded quarrel.
-      c.strokeStyle = '#dfe9ff';
-      c.lineWidth = 2.5;
-      c.beginPath(); c.moveTo(nutX, 0); c.lineTo(bowX + 16 + windupFrac * 2, 0); c.stroke();
-      c.fillStyle = '#ffffff';
-      c.beginPath(); c.moveTo(bowX + 21 + windupFrac * 2, 0); c.lineTo(bowX + 14, -3); c.lineTo(bowX + 14, 3); c.closePath(); c.fill();
-    } else if (sim.flash > 0.08) {
-      c.fillStyle = '#dfe9ffaa';
-      c.beginPath(); c.arc(bowX + 14, 0, (sim.flash - 0.08) * 140, 0, Math.PI * 2); c.fill();
-    }
-  } else if (hero.weapon === 'garand') {
-    // M1 Garand: long wooden stock, steel barrel, muzzle flash on the shot; the rifle drops to port arms
-    // while the clip is out.
-    const reloading = sim.reloadLeft > 0;
-    c.save();
-    if (reloading) c.rotate(0.55);
-    c.strokeStyle = skin;
-    c.lineWidth = 4;
-    c.lineCap = 'round';
-    c.beginPath(); c.moveTo(4, -9); c.lineTo(18, -3); c.stroke();
-    c.beginPath(); c.moveTo(2, 9); c.lineTo(6, 3); c.stroke();
-    c.lineCap = 'butt';
-    c.fillStyle = '#6b4222';
-    c.fillRect(-4, -3.5, 22, 7);
-    c.fillRect(14, -2.5, 8, 5);
-    c.fillStyle = '#3d3f44';
-    c.fillRect(20, -1.8, 20, 3.6);
-    c.fillStyle = dark;
-    c.fillRect(6, -5, 8, 10);
-    if (reloading) {
-      // Open receiver.
-      c.fillStyle = '#ffd27a';
-      c.fillRect(8, -6, 4, 3);
-    }
-    if (sim.flash > 0.06 && !reloading) {
-      c.fillStyle = '#fff1b8cc';
-      c.beginPath(); c.arc(42, 0, (sim.flash - 0.06) * 150, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = '#fff8dd';
-      c.lineWidth = 2;
-      for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(43, i * 4); c.lineTo(52 + (1 - Math.abs(i)) * 6, i * 9); c.stroke(); }
-    }
-    c.restore();
-  } else if (hero.weapon === 'pistols') {
-    // Twin pistols: both arms forward, the hand that just fired kicks back, alternating each shot.
-    const side = sim.attackCount % 2 ? -1 : 1;
-    const reloading = sim.reloadLeft > 0;
-    const kickFrac = sim.recoil > 0 ? sim.recoil / 0.08 : 0;
-    for (const s of [-1, 1]) {
-      const firing = s === side && kickFrac > 0 && !reloading;
-      const back = firing ? kickFrac * 5 : 0;
-      c.save();
-      if (reloading) c.rotate(s * 0.7);
-      c.strokeStyle = skin;
-      c.lineWidth = 4;
-      c.lineCap = 'round';
-      c.beginPath(); c.moveTo(3, s * 8); c.lineTo(16 - back, s * 6); c.stroke();
-      c.lineCap = 'butt';
-      c.fillStyle = dark;
-      c.fillRect(14 - back, s * 6 - 2, 12, 4);
-      c.fillRect(13 - back, s * 6 - 1, 3, s > 0 ? 6 : -6);
-      c.fillStyle = '#c9a36b';
-      c.fillRect(24 - back, s * 6 - 1.2, 3, 2.4);
-      if (firing) {
-        c.fillStyle = '#ffe8a8cc';
-        c.beginPath(); c.arc(29 - back, s * 6, kickFrac * 7, 0, Math.PI * 2); c.fill();
-      }
-      c.restore();
-    }
-  } else {
-    // Cannon: shoulder-mounted barrel with a heat glow that climbs with heat.
-    const heat = sim.heat / 4;
-    const barrelLen = 26 + windupFrac * 3;
-    c.strokeStyle = skin;
-    c.lineWidth = 4;
-    c.lineCap = 'round';
-    c.beginPath(); c.moveTo(4, -9); c.lineTo(14, -6); c.stroke();
-    c.beginPath(); c.moveTo(2, 9); c.lineTo(9, 5); c.stroke();
-    c.lineCap = 'butt';
-    c.fillStyle = '#3a2410';
-    c.fillRect(4, -6, barrelLen, 12);
-    c.fillStyle = heat > 0 ? `rgba(255,${Math.round(150 - heat * 90)},${Math.round(90 - heat * 60)},${0.35 + heat * 0.55})` : '#5a3a1a';
-    c.fillRect(8, -4, barrelLen - 8, 8);
-    c.strokeStyle = col.trim;
-    c.lineWidth = 1.5;
-    c.strokeRect(4, -6, barrelLen, 12);
-    // Muzzle ring and breech.
-    c.fillStyle = dark;
-    c.fillRect(4 + barrelLen - 3, -8, 4, 16);
-    c.fillRect(2, -8, 4, 16);
-    if (heat >= 1 && Math.sin(t * 30) > 0) { c.fillStyle = '#ffffffaa'; c.fillRect(8, -4, barrelLen - 8, 8); }
-    // Charge glow inside the barrel during windup; shell flash on release.
-    if (sim.windupLeft > 0) {
-      c.fillStyle = `rgba(255,210,122,${windupFrac})`;
-      c.beginPath(); c.arc(4 + barrelLen, 0, 2 + windupFrac * 4, 0, Math.PI * 2); c.fill();
-    } else if (sim.flash > 0.06) {
-      c.fillStyle = '#ffe7b8cc';
-      c.beginPath(); c.arc(4 + barrelLen + 4, 0, (sim.flash - 0.06) * 180, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = '#fff4dd';
-      c.lineWidth = 2;
-      for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(4 + barrelLen + 6, i * 6); c.lineTo(4 + barrelLen + 18 + (1 - Math.abs(i)) * 8, i * 12); c.stroke(); }
-    }
-  }
-  // Head with visor.
-  c.fillStyle = skin;
+  drawWeapon(c, hero, {
+    skin, dark, windupFrac: drawFrac, flash: sim.flash, crank: sim.crank, reloadLeft: sim.reloadLeft, heat: sim.heat, attackCount: sim.attackCount,
+    recoil: sim.recoil, tempoReady: sim.tempoReady, tempoFlash: sim.tempoFlash, running: sim.status === 'running', t, finish: sim.runLoadout.finish,
+    steady: sim.runLoadout.steadyStock,
+  });
+  // Head: casing dome with the visor as the class accent (amber while armed).
+  c.fillStyle = hurtBlink ? '#ffffff' : MACHINE.casing;
   c.beginPath(); c.arc(2, 0, 7.5, 0, Math.PI * 2); c.fill();
-  c.strokeStyle = dark;
+  c.strokeStyle = edge;
   c.lineWidth = 1.5;
   c.stroke();
   c.strokeStyle = sim.armed ? '#ffd78c' : trim;
@@ -1199,6 +1262,63 @@ function drawPlayer(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: 
 
   // Tempo shot landed: a quick cape-coloured ring.
   if (sim.tempoFlash > 0) circle(c, p.x, p.y, 26 + (0.25 - sim.tempoFlash) * 160, col.capeTrim, 2.5);
+  // Steady stock: the recovery is drawn as a thin ring so the next clean shot is easy to time.
+  if (sim.runLoadout.steadyStock && sim.windupLeft <= 0 && sim.cooldown > 0 && sim.status === 'running') {
+    c.lineWidth = 2;
+    c.strokeStyle = '#c9f7e999';
+    c.beginPath(); c.arc(p.x, p.y, 33, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(1 - sim.cooldown * sim.effectiveAttackSpeed(), 0, 1)); c.stroke();
+  }
+  // Gaze cue (brief 03): while a Witness winds up, the authoritative facing is shown as an unsmoothed chevron on the
+  // ring, and the verdict the release would give right now is spelled out. Same geometry helper as the resolution.
+  const gazing = sim.status === 'running' && sim.gazing.length > 0;
+  if (gazing) {
+    const exposed = sim.gazeExposed;
+    const fa = sim.combatFacing;
+    c.save();
+    c.translate(p.x, p.y);
+    c.rotate(fa);
+    c.fillStyle = exposed ? '#ffffff' : '#a2ebcd';
+    c.strokeStyle = '#0b1418';
+    c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(34, 0); c.lineTo(22, -7); c.lineTo(26, 0); c.lineTo(22, 7); c.closePath(); c.fill(); c.stroke();
+    c.restore();
+    c.textAlign = 'center';
+    if (exposed) {
+      const blink = Math.sin(t * 16) > 0;
+      c.fillStyle = blink ? '#ffffff' : ENEMY_COLORS.witness;
+      c.fillRect(p.x - 52, p.y - 78, 104, 18);
+      c.fillStyle = '#1a1024';
+      c.font = 'bold 12px monospace';
+      c.fillText('LOOK AWAY', p.x, p.y - 65);
+    } else {
+      c.fillStyle = '#0b1418aa';
+      c.fillRect(p.x - 44, p.y - 78, 88, 18);
+      // Closed-eye glyph plus the word, so the safe state reads without colour.
+      c.strokeStyle = '#a2ebcd';
+      c.lineWidth = 2;
+      c.beginPath(); c.moveTo(p.x - 36, p.y - 69); c.quadraticCurveTo(p.x - 28, p.y - 63, p.x - 20, p.y - 69); c.stroke();
+      c.fillStyle = '#a2ebcd';
+      c.font = 'bold 11px monospace';
+      c.fillText('SAFE · EYE OFF', p.x + 8, p.y - 65);
+    }
+    c.textAlign = 'left';
+  }
+  // Stun: a grey clamp ring draining with the lock, named so the source of the lost control is never a mystery.
+  if (sim.stunned > 0) {
+    const f = clamp(sim.stunned / Math.max(0.01, sim.tuning.witnessStun), 0, 1);
+    c.lineWidth = 6;
+    c.strokeStyle = '#cfc6e8';
+    c.beginPath(); c.arc(p.x, p.y, 30, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * f); c.stroke();
+    c.fillStyle = '#efe9f8';
+    c.font = 'bold 12px monospace';
+    c.textAlign = 'center';
+    c.fillText(`STUNNED · ${sim.stunSource} · ${sim.stunned.toFixed(2)}s`, p.x, p.y - 84);
+    c.textAlign = 'left';
+  } else if (sim.stunImmune > 0 && sim.status === 'running') {
+    c.setLineDash([3, 5]);
+    circle(c, p.x, p.y, 30, `rgba(207,198,232,${0.3 + 0.4 * (sim.stunImmune / WITNESS.stunImmunity)})`, 1.5);
+    c.setLineDash([]);
+  }
   // Timing rings.
   if (sim.windupLeft > 0) {
     c.lineWidth = 5;
@@ -1206,9 +1326,8 @@ function drawPlayer(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: 
     c.beginPath();
     c.arc(p.x, p.y, 33, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * windupFrac);
     c.stroke();
-  } else if (sim.flash > 0) {
-    circle(c, p.x, p.y, 30 + (0.14 - sim.flash) * 130, col.bolt, 3);
   }
+  // No whole-body ring on release: the release reads from the weapon (hand snap, string, muzzle accent) and the recoil.
   // Dash cooldown arc and charge pips.
   if (sim.dashCd > 0) {
     c.lineWidth = 3;
@@ -1274,6 +1393,289 @@ function drawPlayer(sim: Simulation, c: CanvasRenderingContext2D, p: Point, rs: 
   c.textAlign = 'left';
 }
 
+
+/** Everything drawWeapon needs from the sim (or from the workbench, with static values). */
+export type WeaponView = {
+  skin: string; dark: string; windupFrac: number; flash: number; crank: number; reloadLeft: number; heat: number; attackCount: number;
+  recoil: number; tempoReady: boolean; tempoFlash: number; running: boolean; t: number; finish: FinishId | null; steady: boolean;
+};
+
+/** Signature finishes change weapon surfaces only: steel, wood and accent colours plus a small authored mark. */
+export function finishColors(finish: FinishId | null): { steel?: string; wood?: string; accent?: string; edge?: string; mark: FinishId | null } {
+  switch (finish) {
+    case 'finish.matte-enamel': return { steel: '#2b2f36', wood: '#1f2328', accent: '#e6e9ee', edge: '#e6e9ee', mark: finish };
+    case 'finish.copper-inlay': return { accent: '#c67a3c', mark: finish };
+    case 'finish.signal-tape': return { accent: '#f2e14c', mark: finish };
+    default: return { mark: null };
+  }
+}
+
+/** The finish's mark on a weapon-local rectangle: a pale enamel edge, two copper bands, or diagonal signal tape. */
+function finishMark(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, fin: ReturnType<typeof finishColors>, rot: number) {
+  if (!fin.mark || w <= 2 || h <= 1) return;
+  c.save();
+  if (rot) { c.translate(x + w / 2, y + h / 2); c.rotate(rot); c.translate(-(x + w / 2), -(y + h / 2)); }
+  if (fin.mark === 'finish.matte-enamel') {
+    c.strokeStyle = '#e6e9eecc';
+    c.lineWidth = 0.8;
+    c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  } else if (fin.mark === 'finish.copper-inlay') {
+    c.fillStyle = '#c67a3c';
+    const bw = Math.max(1.2, w * 0.12);
+    c.fillRect(x + w * 0.28, y + 0.5, bw, h - 1);
+    c.fillRect(x + w * 0.62, y + 0.5, bw, h - 1);
+    c.fillStyle = '#f0b67f';
+    c.fillRect(x + w * 0.28 + bw * 0.35, y + 0.5, bw * 0.3, h - 1);
+  } else {
+    c.beginPath(); c.rect(x, y, w, h); c.clip();
+    c.lineWidth = Math.max(1.5, h * 0.35);
+    for (let i = -1; i < 4; i++) {
+      c.strokeStyle = i % 2 ? '#1a1a1a' : '#f2e14c';
+      const sx = x + w * 0.45 + i * c.lineWidth * 1.1;
+      c.beginPath(); c.moveTo(sx, y + h + 1); c.lineTo(sx + h, y - 1); c.stroke();
+    }
+  }
+  c.restore();
+}
+
+/**
+ * The weapon and arms in aim space (+x forward), shared by the arena (live sim values) and the Armoury workbench
+ * (static values on a small canvas). Finishes recolour surfaces here and nowhere else.
+ */
+export function drawWeapon(c: CanvasRenderingContext2D, hero: Hero, v: WeaponView) {
+  const skin = v.skin, dark = v.dark, windupFrac = v.windupFrac, t = v.t;
+  const fin = finishColors(v.finish);
+  if (hero.weapon === 'bow') {
+    // Recurve as planar parts: two straight pale limbs with chamfered tips, a slate riser slab with a grip block at
+    // the pivot, an off-white string. The bow arm is planted; the drawing hand pulls back through the windup and
+    // snaps forward with the bolt on release. `windupFrac` is the eased draw, so a cancel unwinds instead of popping.
+    const gripX = 17, pull = windupFrac * 14;
+    const released = windupFrac <= 0 && v.flash > 0.08; // the 60 ms after a release
+    const rf = released ? (v.flash - 0.08) / 0.06 : 0;   // 1 at release, 0 at the end of the accent
+    const handX = released ? gripX + 3 + rf * 2 : gripX - 3 - pull;
+    c.strokeStyle = skin;
+    c.lineWidth = 4;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(4, -9); c.lineTo(gripX, -2); c.stroke();
+    c.beginPath(); c.moveTo(2, 9); c.lineTo(handX, released ? -1 : 1); c.stroke();
+    c.lineCap = 'butt';
+    const tipX = gripX + 2, tipY = 15;
+    c.strokeStyle = fin.steel ?? MACHINE.edge;
+    c.lineWidth = 2.5;
+    c.lineJoin = 'miter';
+    c.beginPath();
+    c.moveTo(tipX, -tipY); c.lineTo(gripX + 4, -7); c.lineTo(gripX + 3, -5);
+    c.moveTo(gripX + 3, 5); c.lineTo(gripX + 4, 7); c.lineTo(tipX, tipY);
+    c.stroke();
+    // Riser slab and grip block.
+    c.fillStyle = fin.wood ?? MACHINE.casing;
+    c.fillRect(gripX - 1, -6, 4.5, 12);
+    c.fillStyle = MACHINE.inset;
+    c.fillRect(gripX - 2.5, -3, 3, 6);
+    c.strokeStyle = fin.edge ?? MACHINE.edge;
+    c.lineWidth = 1;
+    c.strokeRect(gripX - 1, -6, 4.5, 12);
+    finishMark(c, gripX - 1, -6, 4.5, 12, fin, 0);
+    // String: drawn to the hand; for the release accent it shivers as two lines either side of rest.
+    c.lineWidth = 1;
+    if (released) {
+      c.strokeStyle = '#ffffff';
+      const s = rf * 2.5;
+      for (const k of [-1, 1]) { c.beginPath(); c.moveTo(tipX, -tipY); c.lineTo(gripX + 1 + k * s, 0); c.lineTo(tipX, tipY); c.stroke(); }
+    } else {
+      c.strokeStyle = MACHINE.edge;
+      c.beginPath(); c.moveTo(tipX, -tipY); c.lineTo(handX, 0); c.lineTo(tipX, tipY); c.stroke();
+    }
+    if (windupFrac > 0) {
+      // Nocked bolt: off-white shaft, head in the player colour, dark nock at the hand.
+      c.strokeStyle = MACHINE.edge;
+      c.lineWidth = 2;
+      c.beginPath(); c.moveTo(handX, 0); c.lineTo(gripX + 14, 0); c.stroke();
+      c.fillStyle = hero.colors.bolt;
+      c.beginPath(); c.moveTo(gripX + 19, 0); c.lineTo(gripX + 12, -3); c.lineTo(gripX + 12, 3); c.closePath(); c.fill();
+      c.fillStyle = MACHINE.inset;
+      c.beginPath(); c.moveTo(handX, 0); c.lineTo(handX - 4, -3); c.lineTo(handX - 4, 3); c.closePath(); c.fill();
+    } else if (released) {
+      // Release accent: one short bright tick leaving the nock point along the aim. Local; no bloom, no ring.
+      c.strokeStyle = `rgba(255,255,255,${0.9 * rf})`;
+      c.lineWidth = 2;
+      c.beginPath(); c.moveTo(gripX + 6, 0); c.lineTo(gripX + 18 + (1 - rf) * 10, 0); c.stroke();
+    }
+  } else if (hero.weapon === 'blade') {
+    // Throwing blades: the lead hand cocks back through the windup, then snaps forward on release.
+    const cock = windupFrac * 10;
+    const tempo = v.tempoReady;
+    c.strokeStyle = skin;
+    c.lineWidth = 4;
+    c.lineCap = 'round';
+    // Off hand forward, blade hand back.
+    c.beginPath(); c.moveTo(4, -9); c.lineTo(15, -5); c.stroke();
+    c.beginPath(); c.moveTo(2, 9); c.lineTo(9 - cock, 12 + cock * 0.4); c.stroke();
+    c.lineCap = 'butt';
+    // Held blade in the off hand.
+    c.fillStyle = fin.steel ?? '#e9eef5';
+    c.beginPath(); c.moveTo(15, -5); c.lineTo(27, -9); c.lineTo(17, -1); c.closePath(); c.fill();
+    finishMark(c, 15, -9, 12, 8, fin, -0.3);
+    // Blade being wound up in the throwing hand.
+    if (windupFrac > 0) {
+      c.save();
+      c.translate(9 - cock, 12 + cock * 0.4);
+      c.rotate(-0.6 - windupFrac * 0.8);
+      c.fillStyle = tempo ? hero.colors.capeTrim : fin.steel ?? '#e9eef5';
+      c.beginPath(); c.moveTo(0, 0); c.lineTo(13, -3); c.lineTo(2, 3); c.closePath(); c.fill();
+      c.restore();
+    } else if (v.flash > 0.06) {
+      // Release: a slash arc in front of the hand.
+      c.strokeStyle = v.tempoFlash > 0 ? hero.colors.capeTrim : '#ffffffcc';
+      c.lineWidth = 3;
+      c.beginPath(); c.arc(14, 0, 14 + (0.14 - v.flash) * 90, -0.6, 0.6); c.stroke();
+    }
+    // Tempo cue: a bright spark at the throwing hand while the window is open.
+    if (tempo && v.running) {
+      c.fillStyle = `rgba(255,159,176,${0.5 + Math.sin(t * 20) * 0.4})`;
+      c.beginPath(); c.arc(11, 12, 3.5, 0, Math.PI * 2); c.fill();
+    }
+  } else if (hero.weapon === 'crossbow') {
+    // Heavy crossbow held level: stock, a wide bow at the front, a string that sits forward until the
+    // crank rewinds it, and a quarrel on the rail only once it is loaded.
+    const crank = v.crank;
+    const bowX = 20;
+    c.strokeStyle = skin;
+    c.lineWidth = 4;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(4, -9); c.lineTo(15, -3); c.stroke();
+    c.beginPath(); c.moveTo(2, 9); c.lineTo(8, 2); c.stroke();
+    c.lineCap = 'butt';
+    c.fillStyle = fin.wood ?? '#2a3552';
+    c.fillRect(-2, -3, bowX + 8, 6);
+    c.fillStyle = fin.steel ?? '#4a5f8f';
+    c.fillRect(2, -1.5, bowX + 2, 3);
+    finishMark(c, 0, -3, bowX + 4, 6, fin, 0);
+    // Bow limbs.
+    c.strokeStyle = fin.steel ?? '#9fb8e8';
+    c.lineWidth = 3;
+    c.beginPath(); c.moveTo(bowX, -18); c.quadraticCurveTo(bowX + 6, 0, bowX, 18); c.stroke();
+    // String: forward when spent, drawn back to the nut when cranked.
+    const nutX = bowX - 12 * crank;
+    c.strokeStyle = crank >= 1 ? '#ffffff' : '#c9d6f5';
+    c.lineWidth = crank >= 1 ? 1.6 : 1;
+    c.beginPath(); c.moveTo(bowX, -18); c.lineTo(nutX, 0); c.lineTo(bowX, 18); c.stroke();
+    // Crank handle turns as it winds.
+    c.save();
+    c.translate(0, 6);
+    c.rotate(crank * Math.PI * 4);
+    c.strokeStyle = '#e3ecff';
+    c.lineWidth = 2;
+    c.beginPath(); c.moveTo(-4, 0); c.lineTo(4, 0); c.stroke();
+    c.restore();
+    if (crank >= 1 && v.flash <= 0.08) {
+      // Loaded quarrel.
+      c.strokeStyle = '#dfe9ff';
+      c.lineWidth = 2.5;
+      c.beginPath(); c.moveTo(nutX, 0); c.lineTo(bowX + 16 + windupFrac * 2, 0); c.stroke();
+      c.fillStyle = '#ffffff';
+      c.beginPath(); c.moveTo(bowX + 21 + windupFrac * 2, 0); c.lineTo(bowX + 14, -3); c.lineTo(bowX + 14, 3); c.closePath(); c.fill();
+    } else if (v.flash > 0.08) {
+      c.fillStyle = '#dfe9ffaa';
+      c.beginPath(); c.arc(bowX + 14, 0, (v.flash - 0.08) * 140, 0, Math.PI * 2); c.fill();
+    }
+  } else if (hero.weapon === 'garand') {
+    // M1 Garand: long wooden stock, steel barrel, muzzle flash on the shot; the rifle drops to port arms
+    // while the clip is out.
+    const reloading = v.reloadLeft > 0;
+    c.save();
+    if (reloading) c.rotate(0.55);
+    c.strokeStyle = skin;
+    c.lineWidth = 4;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(4, -9); c.lineTo(18, -3); c.stroke();
+    c.beginPath(); c.moveTo(2, 9); c.lineTo(6, 3); c.stroke();
+    c.lineCap = 'butt';
+    c.fillStyle = fin.wood ?? '#6b4222';
+    c.fillRect(-4, -3.5, 22, 7);
+    c.fillRect(14, -2.5, 8, 5);
+    c.fillStyle = fin.steel ?? '#3d3f44';
+    c.fillRect(20, -1.8, 20, 3.6);
+    finishMark(c, -4, -3.5, 18, 7, fin, 0);
+    c.fillStyle = dark;
+    c.fillRect(6, -5, 8, 10);
+    if (reloading) {
+      // Open receiver.
+      c.fillStyle = '#ffd27a';
+      c.fillRect(8, -6, 4, 3);
+    }
+    if (v.flash > 0.06 && !reloading) {
+      c.fillStyle = '#fff1b8cc';
+      c.beginPath(); c.arc(42, 0, (v.flash - 0.06) * 150, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#fff8dd';
+      c.lineWidth = 2;
+      for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(43, i * 4); c.lineTo(52 + (1 - Math.abs(i)) * 6, i * 9); c.stroke(); }
+    }
+    c.restore();
+  } else if (hero.weapon === 'pistols') {
+    // Twin pistols: both arms forward, the hand that just fired kicks back, alternating each shot.
+    const side = v.attackCount % 2 ? -1 : 1;
+    const reloading = v.reloadLeft > 0;
+    const kickFrac = v.recoil > 0 ? v.recoil / 0.08 : 0;
+    for (const s of [-1, 1]) {
+      const firing = s === side && kickFrac > 0 && !reloading;
+      const back = firing ? kickFrac * 5 : 0;
+      c.save();
+      if (reloading) c.rotate(s * 0.7);
+      c.strokeStyle = skin;
+      c.lineWidth = 4;
+      c.lineCap = 'round';
+      c.beginPath(); c.moveTo(3, s * 8); c.lineTo(16 - back, s * 6); c.stroke();
+      c.lineCap = 'butt';
+      c.fillStyle = fin.steel ?? dark;
+      c.fillRect(14 - back, s * 6 - 2, 12, 4);
+      c.fillRect(13 - back, s * 6 - 1, 3, s > 0 ? 6 : -6);
+      c.fillStyle = fin.accent ?? '#c9a36b';
+      c.fillRect(24 - back, s * 6 - 1.2, 3, 2.4);
+      finishMark(c, 14 - back, s * 6 - 2, 12, 4, fin, 0);
+      if (firing) {
+        c.fillStyle = '#ffe8a8cc';
+        c.beginPath(); c.arc(29 - back, s * 6, kickFrac * 7, 0, Math.PI * 2); c.fill();
+      }
+      c.restore();
+    }
+  } else {
+    // Cannon: shoulder-mounted barrel with a heat glow that climbs with heat.
+    const heat = v.heat / 4;
+    const barrelLen = 26 + windupFrac * 3;
+    c.strokeStyle = skin;
+    c.lineWidth = 4;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(4, -9); c.lineTo(14, -6); c.stroke();
+    c.beginPath(); c.moveTo(2, 9); c.lineTo(9, 5); c.stroke();
+    c.lineCap = 'butt';
+    c.fillStyle = fin.steel ?? '#3a2410';
+    c.fillRect(4, -6, barrelLen, 12);
+    c.fillStyle = heat > 0 ? `rgba(255,${Math.round(150 - heat * 90)},${Math.round(90 - heat * 60)},${0.35 + heat * 0.55})` : '#5a3a1a';
+    c.fillRect(8, -4, barrelLen - 8, 8);
+    c.strokeStyle = fin.edge ?? hero.colors.trim;
+    c.lineWidth = 1.5;
+    c.strokeRect(4, -6, barrelLen, 12);
+    finishMark(c, 4, -6, barrelLen - 4, 12, fin, 0);
+    // Muzzle ring and breech.
+    c.fillStyle = dark;
+    c.fillRect(4 + barrelLen - 3, -8, 4, 16);
+    c.fillRect(2, -8, 4, 16);
+    if (heat >= 1 && Math.sin(t * 30) > 0) { c.fillStyle = '#ffffffaa'; c.fillRect(8, -4, barrelLen - 8, 8); }
+    // Charge glow inside the barrel during windup; shell flash on release.
+    if (windupFrac > 0) {
+      c.fillStyle = `rgba(255,210,122,${windupFrac})`;
+      c.beginPath(); c.arc(4 + barrelLen, 0, 2 + windupFrac * 4, 0, Math.PI * 2); c.fill();
+    } else if (v.flash > 0.06) {
+      c.fillStyle = '#ffe7b8cc';
+      c.beginPath(); c.arc(4 + barrelLen + 4, 0, (v.flash - 0.06) * 180, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#fff4dd';
+      c.lineWidth = 2;
+      for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(4 + barrelLen + 6, i * 6); c.lineTo(4 + barrelLen + 18 + (1 - Math.abs(i)) * 8, i * 12); c.stroke(); }
+    }
+  }
+}
+
 function drawParticles(sim: Simulation, c: CanvasRenderingContext2D) {
   for (const q of sim.particles) {
     const f = q.life / q.max;
@@ -1324,6 +1726,22 @@ function drawOverlays(sim: Simulation, c: CanvasRenderingContext2D, t: number) {
     c.fillText(sim.wave % 6 === 0 ? 'OVERSEER' : 'WARDEN', W / 2, 74);
     hpBar(c, W / 2, 82, 420, elite.hp / elite.maxHp, '#ff5c8a');
     c.textAlign = 'left';
+  }
+  // Overdraw contract badge (brief 04): compact, top-right, out of the telegraph lanes.
+  const contract = sim.activeContract;
+  if (contract && contract.wave === sim.wave) {
+    c.save();
+    c.textAlign = 'right';
+    c.fillStyle = '#0b141899';
+    c.beginPath(); c.roundRect(W - 334, 62, 300, 40, 6); c.fill();
+    c.fillStyle = '#ffb35c';
+    c.fillRect(W - 334, 62, 4, 40);
+    c.font = 'bold 12px monospace';
+    c.fillText(`OVERDRAW · ×${contract.mult.toFixed(2)} DAMAGE TAKEN`, W - 44, 79);
+    c.font = '11px monospace';
+    c.fillStyle = '#e8f3f1';
+    c.fillText(`CLEAR WAVE ${contract.wave} FOR +${contract.reward} GOLD`, W - 44, 95);
+    c.restore();
   }
   // Elite arrival: a brief pink edge flash.
   if (sim.eliteFlash > 0) {
@@ -1394,8 +1812,9 @@ function drawOverlays(sim: Simulation, c: CanvasRenderingContext2D, t: number) {
     c.fillText(sim.waveState === 'banner' ? `WAVE ${sim.wave}` : 'WAVE CLEAR', W / 2 + (1 - slide) * 260, H / 2 + 6);
     c.font = '15px monospace';
     c.fillStyle = '#c9f7e9';
+    // What the clear leads to: this wave's refit (and its draft tier), or the wave that opens the next one.
     const tier = sim.ascendNext ? 'prismatic' : offerTier(sim.wave);
-    const next = tier === 'prismatic' ? 'PRISMATIC DRAFT' : tier === 'gold' ? 'GOLD DRAFT' : 'CHOOSE AN AUGMENT';
+    const next = !sim.refitAfter(sim.wave) ? `NEXT REFIT AFTER WAVE ${sim.nextRefitWave}` : tier === 'prismatic' ? 'PRISMATIC DRAFT' : tier === 'gold' ? 'GOLD DRAFT' : 'REFIT · CHOOSE AN AUGMENT';
     const wardens = sim.spawnQueue.filter(k => k === 'warden').length;
     const inbound = wardens >= 2 ? 'TWO WARDENS APPROACH' : wardens === 1 ? 'A WARDEN APPROACHES' : `${sim.spawnQueue.length} HOSTILES INBOUND`;
     c.fillText(sim.waveState === 'banner' ? inbound : `+${4 + Math.floor(sim.wave * 0.6)} GOLD  ·  ${next}`, W / 2 - (1 - slide) * 160, H / 2 + 42);
@@ -1479,15 +1898,32 @@ function drawHud(sim: Simulation, c: CanvasRenderingContext2D, t: number) {
   c.font = '11px ui-monospace, Consolas, monospace';
   c.fillStyle = '#8fa2a5';
   c.fillText('E  DASH', x + max * 22 + 6, y + 34);
+  // Next refit, right-aligned under the gold: the cadence is a promise the player can see coming (brief 01).
+  if (sim.status !== 'choosing') {
+    c.textAlign = 'right';
+    c.fillStyle = sim.refitAfter(sim.wave) ? '#a2ebcd' : '#8fa2a5';
+    c.fillText(sim.refitAfter(sim.wave) ? 'REFIT AFTER THIS WAVE' : `REFIT AFTER WAVE ${sim.nextRefitWave}`, x + w, y + 34);
+  }
   c.restore();
 }
 
 function drawCursor(sim: Simulation, c: CanvasRenderingContext2D, rs: RenderState) {
   if (!rs.inside || sim.status !== 'running') return;
   const cur = sim.cursor;
-  c.strokeStyle = sim.armed ? '#ffd78c' : '#a4f1df';
-  c.lineWidth = 1.5;
-  circle(c, cur.x, cur.y, sim.armed ? 14 : 5, c.strokeStyle);
+  // Order confirmation: the cursor flashes the order's colour and throws a quick ring for a fifth of a second.
+  const pulse = rs.cursorPulse > 0 ? rs.cursorPulse / 0.22 : 0;
+  if (pulse > 0) {
+    const col = ORDER_COLORS[rs.cursorKind];
+    c.globalAlpha = pulse;
+    circle(c, cur.x, cur.y, 8 + (1 - pulse) * 22, col, 2.5);
+    c.globalAlpha = 1;
+    c.strokeStyle = col;
+    c.lineWidth = 2.5;
+  } else {
+    c.strokeStyle = sim.armed ? '#ffd78c' : '#a4f1df';
+    c.lineWidth = 1.5;
+  }
+  circle(c, cur.x, cur.y, sim.armed ? 14 : 5 + pulse * 3, c.strokeStyle);
   if (sim.armed) {
     c.setLineDash([3, 10]);
     circle(c, cur.x, cur.y, 220, '#ffd78c25');

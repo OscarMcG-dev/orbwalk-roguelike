@@ -1,10 +1,36 @@
 import type { HeroId, Settings, Stats } from './types.ts';
 
-/** Persistent progress used for unlocks. Stored by the UI in localStorage. */
+/** Career progress (stats only since the Armoury took over unlocks). Stored by the UI in localStorage. */
 export type Progress = { bestWave: number; totalKills: number; runs: number };
+/** What the hero picker needs to know about ownership; the Account in arsenal.ts is the source of truth. */
+export type Ownership = { owned: string[] };
 export const EMPTY_PROGRESS: Progress = { bestWave: 0, totalKills: 0, runs: 0 };
 
 export type Weapon = 'bow' | 'cannon' | 'blade' | 'crossbow' | 'garand' | 'pistols';
+
+/**
+ * Weapon presentation (brief "attack feel", slice A). The one table both the simulation and the renderer read, so a
+ * recoil can never be timed by one file and normalised by another. Cosmetic only: nothing here owns cooldown,
+ * `canFire`, movement, damage or RNG. Units: seconds and arena units.
+ */
+export type WeaponPresentation = {
+  /** Length of the recoil recovery. `Simulation.release()` sets `recoil` to this; the renderer divides by it. */
+  recoil: number;
+  /** Peak upper-body kick along the aim, applied at once on release and eased out over `recoil`. */
+  kick: number;
+  /** How long the torso holds the exact release direction before easing back to the smoothed aim. */
+  hold: number;
+};
+
+/** Durations are the values that shipped before the table existed; only the source of truth moved. */
+export const WEAPON_PRESENTATION: Record<Weapon, WeaponPresentation> = {
+  bow: { recoil: 0.12, kick: 5, hold: 0.05 },
+  blade: { recoil: 0.12, kick: 5, hold: 0.05 },
+  crossbow: { recoil: 0.2, kick: 5, hold: 0.05 },
+  garand: { recoil: 0.14, kick: 5, hold: 0.05 },
+  pistols: { recoil: 0.08, kick: 5, hold: 0.05 },
+  cannon: { recoil: 0.18, kick: 9, hold: 0.05 },
+};
 
 export type Hero = {
   id: HeroId;
@@ -33,7 +59,8 @@ export type Hero = {
   offhand?: number;
   weapon: Weapon;
   colors: { skin: string; trim: string; dark: string; cape: string; capeTrim: string; bolt: string };
-  unlock: { desc: string; check: (p: Progress) => boolean };
+  /** How the class is obtained: the Marksman is free, every other weapon is bought in the Armoury with credits. */
+  unlock: { desc: string; price: number };
 };
 
 export const HEROES: Hero[] = [
@@ -50,7 +77,7 @@ export const HEROES: Hero[] = [
     dashStrike: false,
     weapon: 'bow',
     colors: { skin: '#51cdb2', trim: '#ddfff4', dark: '#173c39', cape: '#2f8f7c', capeTrim: '#7fe0c9', bolt: '#8dffe4' },
-    unlock: { desc: 'Available from the start.', check: () => true },
+    unlock: { desc: 'Available from the start.', price: 0 },
   },
   {
     id: 'arbalest',
@@ -67,7 +94,7 @@ export const HEROES: Hero[] = [
     pierce: 4,
     weapon: 'crossbow',
     colors: { skin: '#7d9bc7', trim: '#e3ecff', dark: '#1d2a44', cape: '#3a4f80', capeTrim: '#9fb8e8', bolt: '#dfe9ff' },
-    unlock: { desc: 'Reach wave 2 in any run.', check: p => p.bestWave >= 2 },
+    unlock: { desc: 'Armoury · 40 credits', price: 40 },
   },
   {
     id: 'cannoneer',
@@ -82,7 +109,7 @@ export const HEROES: Hero[] = [
     dashStrike: false,
     weapon: 'cannon',
     colors: { skin: '#e0a35a', trim: '#fff0d6', dark: '#4a2c14', cape: '#8a4f2a', capeTrim: '#f0b67f', bolt: '#ffd27a' },
-    unlock: { desc: 'Reach wave 4 in any run.', check: p => p.bestWave >= 4 },
+    unlock: { desc: 'Armoury · 80 credits', price: 80 },
   },
   {
     id: 'rifleman',
@@ -98,7 +125,7 @@ export const HEROES: Hero[] = [
     magazine: { size: 8, reload: 1.6, ping: true },
     weapon: 'garand',
     colors: { skin: '#9aa86a', trim: '#eef2d6', dark: '#2e3319', cape: '#5d6b34', capeTrim: '#c8d48a', bolt: '#fff1b8' },
-    unlock: { desc: 'Reach wave 3 in any run.', check: p => p.bestWave >= 3 },
+    unlock: { desc: 'Armoury · 60 credits', price: 60 },
   },
   {
     id: 'skirmisher',
@@ -113,7 +140,7 @@ export const HEROES: Hero[] = [
     dashStrike: true,
     weapon: 'blade',
     colors: { skin: '#ff6b7f', trim: '#ffe3e8', dark: '#3a1420', cape: '#a3283f', capeTrim: '#ff9fb0', bolt: '#ffd0d8' },
-    unlock: { desc: 'Reach 200 career kills.', check: p => p.totalKills >= 200 },
+    unlock: { desc: 'Armoury · 120 credits', price: 120 },
   },
   {
     id: 'gunslinger',
@@ -130,9 +157,10 @@ export const HEROES: Hero[] = [
     offhand: 0.6,
     weapon: 'pistols',
     colors: { skin: '#c9a36b', trim: '#fff3dc', dark: '#2b2118', cape: '#6b4a2b', capeTrim: '#e8c98f', bolt: '#ffe8a8' },
-    unlock: { desc: 'Reach 150 career kills.', check: p => p.totalKills >= 150 },
+    unlock: { desc: 'Armoury · 100 credits', price: 100 },
   },
 ];
 
 export const heroById = (id: HeroId): Hero => HEROES.find(h => h.id === id) ?? HEROES[0];
-export const isUnlocked = (id: HeroId, p: Progress) => heroById(id).unlock.check(p);
+/** Owned in the account (or free). The item id matches arsenal.ts `weaponItemId`. */
+export const isUnlocked = (id: HeroId, a: Ownership) => id === 'marksman' || a.owned.includes(`weapon.${id}`);

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { Simulation } from '../src/game/sim.ts';
 import { HEROES, heroById, isUnlocked } from '../src/game/heroes.ts';
 import { EASY_DEFAULT_LEVEL, EASY_MAX_LEVEL, easyBlend, matchPreset, presetById, sameTuning } from '../src/game/tuning.ts';
+import { grantLegacyUnlocks, newAccount } from '../src/game/arsenal.ts';
 
 const settings = hero => ({ mode: 'run', drill: 'mixed', difficulty: 'standard', hero, ...heroById(hero).profile, quick: false, showRange: true, sound: false, shake: true });
 const setup = hero => { const s = new Simulation(settings(hero)); s.start(); s.enemies = []; s.spawnQueue = []; s.waveState = 'fighting'; return s; };
@@ -13,12 +14,16 @@ const tick = (s, seconds) => { for (let i = 0; i < Math.round(seconds * 120); i+
 const until = (s, pred, max = 10) => { let t = 0; while (!pred() && t < max) { s.update(1 / 120); t += 1 / 120; } return pred(); };
 const place = (s, kind, x, y, hp = 1e6) => { const e = s.spawnEnemy(kind, { x, y }); e.spawn = 1; e.speed = 0; e.hp = e.maxHp = hp; return e; };
 
-test('Six classes with distinct weapons; the new three unlock by progress', () => {
+test('Six classes with distinct weapons; weapons are owned through the account, and old progress unlocks migrate once', () => {
   assert.equal(HEROES.length, 6);
   assert.deepEqual(new Set(HEROES.map(h => h.weapon)), new Set(['bow', 'cannon', 'blade', 'crossbow', 'garand', 'pistols']));
-  const fresh = { bestWave: 0, totalKills: 0, runs: 0 };
+  const fresh = newAccount('save-1', 1);
   assert.ok(isUnlocked('marksman', fresh) && !isUnlocked('arbalest', fresh) && !isUnlocked('rifleman', fresh) && !isUnlocked('gunslinger', fresh));
-  assert.ok(isUnlocked('arbalest', { ...fresh, bestWave: 2 }) && isUnlocked('rifleman', { ...fresh, bestWave: 3 }) && isUnlocked('gunslinger', { ...fresh, totalKills: 150 }));
+  const migrated = grantLegacyUnlocks(fresh, { bestWave: 3, totalKills: 150 });
+  assert.ok(isUnlocked('arbalest', migrated) && isUnlocked('rifleman', migrated) && isUnlocked('gunslinger', migrated));
+  assert.ok(!isUnlocked('cannoneer', migrated) && !isUnlocked('skirmisher', migrated), 'wave 4 and 200 kills were not reached');
+  assert.equal(grantLegacyUnlocks(migrated, { bestWave: 3, totalKills: 150 }), migrated, 'idempotent');
+  assert.equal(fresh.owned.length, 0, 'pure: the original account is untouched');
 });
 
 test('Rifleman: eight shots, then the clip pings out and 1.6 s of reload during which you may move but not fire', () => {

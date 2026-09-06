@@ -66,7 +66,9 @@ sliders in the dev tuning panel (`src/game/tuning.ts`); the source values live i
 | Augment power | Down across the board | 1.0× | 0.75× | augmentPower |
 | Draft cadence | Less often | every wave | every second wave | shopEvery |
 | Rare augments | Significantly harder to get | 13 / 6 / 1 bag | 22 / 7 / 2 bag | bag knobs |
-| Quests | Riskier: penalty now, reward later | passive tracking | not yet built | none |
+| Quests | Riskier: penalty now, reward later | passive tracking | Overdraw contract (brief 04): x1.35 damage taken for one wave, +18 gold on clear | overdrawMult, overdrawGold, overdrawFromWave |
+| Witness gaze | Attention as a question | not built | 300 u radius, 1.15 s tell (0.85 s floor), 70 degrees either side, 0.35 s stun, 4.5 s cooldown, debut wave 7 | witness* |
+| Credits | Earned, not dripped | not built | 4 per cleared wave + 8 per Warden wave, cap 60; case 100; 80 / 19 / 1 | credits*, caseCost, chaseOdds, signatureOdds |
 
 Kite margin is the number to watch: walking speed minus enemy speed. Positive means you can walk away from
 it forever. In v0.4 nothing outruns a walking player. Under Iron, drones and bombers still cannot, leeches
@@ -151,3 +153,17 @@ In rough order. Each becomes an `AB-*.md` when it is tested.
   Rifleman (M1 Garand: eight rounds, ping, 1.6 s reload spent moving, R ejects early) and Gunslinger (twin
   Berettas: off-hand shot at a second enemy, thirty rounds, 1.1 s rack). The ammunition systems are the
   first "lunges" on the player side: forced repositioning windows instead of a constant cadence.
+- 2026-09-06: Briefs 03, 04 and 05 built in one session. The Witness is the first enemy whose question is about
+  attention rather than position ("can you interrupt your firing rhythm for one deliberate turn?"); its facing
+  contract (`combatFacing`) is set only by accepted orders so a wrong-looking torso can never be the reason a turn
+  was rejected. Overdraw is the first signed contract (pillar 6): chosen in the intermission, priced up front, paid
+  once at wave clear, void on death. The Armoury turns pillar 5's "rarity as kind of power" into a meta layer: one
+  account currency earned per cleared wave, weapons and parts bought outright or won from one honest case, Finishes
+  that touch surfaces only. Class unlocks moved into the same wallet at Oscar's request so the game has one
+  progression economy rather than two. All numbers are starting values; the dev panel exposes every one of them and
+  the note button (N) is how the verdicts come back.
+- 2026-09-06 (later): Visual identity and attack feel, slice A of each. The look is a procedural machine-world
+  (`design/STYLE.md`): slate casing, one dark inset, off-white working edges; mint for the player, red for danger
+  only, gold for reward. The Marksman, bow and Reaver are the proof; the rest waits on play. The release now reads
+  from a pose, not a ring: launch direction held for 50 ms, recoil that peaks at once and eases out, a dry string
+  transient, a quiet tick on a cancel. No timing, hit-stop or rule moved (pillar 2 is presented, not re-tuned).

@@ -51,10 +51,10 @@ test('Warden spawns flash the arena edge and dodge streaks announce every fifth'
 
 // ---------------------------------------------------------------- classes
 
-test('Cannoneer is locked until wave 4 has been reached; Marksman is always open', () => {
-  assert.equal(isUnlocked('marksman', { bestWave: 0, totalKills: 0, runs: 0 }), true);
-  assert.equal(isUnlocked('cannoneer', { bestWave: 3, totalKills: 50, runs: 5 }), false);
-  assert.equal(isUnlocked('cannoneer', { bestWave: 4, totalKills: 0, runs: 1 }), true);
+test('Cannoneer is locked until its weapon is owned in the Armoury; Marksman is always open', () => {
+  assert.equal(isUnlocked('marksman', { owned: [] }), true);
+  assert.equal(isUnlocked('cannoneer', { owned: ['weapon.arbalest'] }), false);
+  assert.equal(isUnlocked('cannoneer', { owned: ['weapon.cannoneer'] }), true);
   assert.equal(HEROES.length, 6);
 });
 

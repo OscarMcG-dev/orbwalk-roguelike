@@ -1,8 +1,9 @@
-import { heroById, type Hero } from './heroes.ts';
+import { BASE_MODS, type LoadoutMods } from './arsenal.ts';
+import { WEAPON_PRESENTATION, heroById, type Hero } from './heroes.ts';
 import { H, PLAYER_R, Rng, W, clamp, distance, segmentDistance } from './math.ts';
 import type {
-  Affix, Beam, Bolt, Danger, Effect, Enemy, EnemyKind, EventBanner, EventKind, Ghost, GoldOrb, MidEvent, Offer, Omen, Particle,
-  Point, QuestKind, Rarity, Relic, Settings, Shard, Shards, Snapshot, Stats, Status, Upgrade, WaveState,
+  ActiveContract, Affix, Beam, Bolt, Charge, ContractId, ContractOffer, ContractReceipt, Danger, Effect, Enemy, EnemyKind, EventBanner, EventKind,
+  GazeReadout, Ghost, GoldOrb, MidEvent, Offer, Omen, OrderMarker, Particle, Point, QuestKind, Rarity, Relic, Settings, Shard, Shards, ShotRecord, Snapshot, Stats, Status, Upgrade, WaveState,
 } from './types.ts';
 import { DEFAULT_TUNING, rarityBag, type Tuning } from './tuning.ts';
 import { PRISMATIC_CAP, SHARD_POOL, UPGRADES, activeQuest, computeStats, eligible, offerTier } from './upgrades.ts';
@@ -41,6 +42,18 @@ const KNOCK_DRAG = 12;
 const STAGGER = 0.07;
 /** Reaver: a melee swinger. Reach beyond its radius, windup before the swing, recovery after, and half-arc. */
 export const REAVER = { reach: 64, windup: 0.6, recover: 0.55, arc: 0.95, damage: 14 };
+/**
+ * Witness (brief 03): a gaze caster. The radius, telegraph base, facing arc, stun and cooldown are tuning knobs;
+ * the accessibility floor on the windup and the recovery are fixed here. `ideal` is the fraction of the gaze radius
+ * it tries to hold while approaching.
+ */
+export const WITNESS = { windupFloor: 0.85, recover: 1.1, ideal: 0.7, stunImmunity: 1.5 };
+/** A move order closer than this to the player is a zero-length destination: it keeps the current facing. */
+export const FACING_DEADZONE = 6;
+/** Chase part (Cannoneer delayed burst): the buried shell's fuse, ring and damage share. */
+export const DELAYED_BURST = { delay: 0.6, radius: 90, share: 0.6 };
+/** Chase part (Rifleman final round): how far the punched-through bolt looks for its second body. */
+export const PUNCH_REACH = 260;
 
 export const EVENT_LABEL: Record<EventKind, string> = { ambush: 'AMBUSH', barrage: 'BARRAGE', bounty: 'BOUNTY', champion: 'CHAMPION', tithe: 'TITHE', cull: 'CULL' };
 export const EVENT_COLORS: Record<EventKind, string> = { ambush: '#ff6b6b', barrage: '#ff9d6b', bounty: '#ffd66b', champion: '#d79bff', tithe: '#8de3ff', cull: '#ffb35c' };
@@ -67,6 +80,7 @@ export const ENEMY_COLORS: Record<EnemyKind, string> = {
   miner: '#ffb35c',
   hexer: '#d45cff',
   reaver: '#efe6d3',
+  witness: '#cfc6e8',
 };
 
 export const AFFIX_COLORS: Record<Affix, string> = {
@@ -80,7 +94,7 @@ export const AFFIX_LABEL: Record<Affix, string> = { swift: 'SWIFT', volatile: 'V
 
 /** Wave budget spent per spawn. Drones and Leeches are filler; Bulwarks and Hexers are set pieces. */
 export const KIND_COST: Record<EnemyKind, number> = {
-  dummy: 0, drone: 1, leech: 1, archer: 2, bomber: 2, splitter: 2, miner: 2, reaver: 2, bulwark: 3, hexer: 3, warden: 6,
+  dummy: 0, drone: 1, leech: 1, archer: 2, bomber: 2, splitter: 2, miner: 2, reaver: 2, bulwark: 3, hexer: 3, witness: 3, warden: 6,
 };
 
 const DIFF = {
@@ -121,6 +135,33 @@ export class Simulation {
   angle = 0;
   /** Direction the torso and weapon point; decoupled from body facing. */
   aimAngle = 0;
+  /**
+   * Authoritative facing for gaze geometry (brief 03). An accepted attack order faces its live target, an accepted
+   * move order faces the ordered point, a dash faces its actual travel, Stop keeps it. Cursor movement never turns it.
+   */
+  combatFacing = 0;
+  /** Crowd control on the player: seconds of control lock left, the immunity window after it, and who did it. */
+  stunned = 0;
+  stunImmune = 0;
+  stunSource = '';
+  /** Witness gazes due this tick, resolved after player targeting and motion. */
+  gazeQueue: number[] = [];
+  lastGaze: GazeReadout | null = null;
+  /** Friendly ground charges (Cannoneer delayed burst). */
+  charges: Charge[] = [];
+  /** Next-wave contract (brief 04): chosen in the intermission, locked on departure, settled at wave clear. */
+  selectedContract: ContractId | null = null;
+  activeContract: ActiveContract | null = null;
+  contractReceipt: ContractReceipt | null = null;
+  contractsSigned = 0;
+  /** Equipped loadout (brief 05). `loadout` is what the next run will use; `runLoadout` is frozen at start(). */
+  loadout: LoadoutMods = { ...BASE_MODS };
+  loadoutIds: string[] = [];
+  runLoadout: LoadoutMods = { ...BASE_MODS };
+  /** Dev fixture staged this run: the account economy pays nothing for it. */
+  sandbox = false;
+  wavesCleared = 0;
+  wardenWavesCleared = 0;
   armed = false;
   target: Enemy | null = null;
   attackOrder = false;
@@ -211,6 +252,8 @@ export class Simulation {
   dashing = 0;
   dashDir: Point = { x: 1, y: 0 };
   ghosts: Ghost[] = [];
+  /** Confirmed order markers at the click point (cosmetic; the Arena pushes them on actual clicks, not drags). */
+  orders: OrderMarker[] = [];
 
   // cue timers (visual only, decay in update)
   dashReadyPulse = 0;
@@ -247,6 +290,11 @@ export class Simulation {
   // stats
   fired = 0;
   cancelled = 0;
+  /** Presentation record of the last successful primary release (see `ShotRecord`); `shotId` is its monotonic counter. */
+  lastShot: ShotRecord | null = null;
+  shotId = 0;
+  /** Dev-only style proof (brief "visual identity"): the renderer adds magnified and grayscale insets while set. */
+  proof = false;
   hits = 0;
   dodged = 0;
   movingTime = 0;
@@ -281,12 +329,22 @@ export class Simulation {
   cutEvent = 0;
   /** A Reaver swung (hit or miss). */
   swingEvent = 0;
+  /** A windup was broken by an order (move, dash, stop, reload). Cosmetic tick only; `cancelled` is the stat. */
+  cancelEvent = 0;
   /** Garand clip ejected (the ping), a reload started (rack), a reload or crank finished (ready). */
   pingEvent = 0;
   rackEvent = 0;
   loadedEvent = 0;
   /** Any paid intermission purchase (anvil, heal, fourth offer, banish, Ascend) landed. */
   buyEvent = 0;
+  /** A Witness began its windup (eye closing), released a gaze, and the player was stunned. */
+  gazeEvent = 0;
+  gazeReleaseEvent = 0;
+  stunEvent = 0;
+  /** An Overdraw contract paid out at wave clear. */
+  contractEvent = 0;
+  /** A delayed burst detonated. */
+  chargeEvent = 0;
 
   constructor(settings: Settings) {
     this.settings = { ...settings };
@@ -365,7 +423,8 @@ export class Simulation {
       id: this.nextId++, kind, x: p.x, y: p.y, hp: 1, maxHp: 1, radius: 16, speed: 0, flash: 0, slow: 0,
       spawn: 1, cooldown: 0, angle: 0, spin: 0, arming: 0, dead: false, invulnerable: false, contactCd: 0,
       wobble: this.rng.range(0, Math.PI * 2), base: null, pattern: 0, elite: false, gold: 0, burn: 0, burnTime: 0,
-      affix: null, facing: 0, latched: false, generation: 0, shred: 0, wardTimer: 0, life: Infinity, block: 0, kx: 0, ky: 0, stagger: 0, ...extra,
+      affix: null, facing: 0, latched: false, generation: 0, shred: 0, wardTimer: 0, life: Infinity, block: 0, kx: 0, ky: 0, stagger: 0,
+      gazePhase: 'approach', gazeTimer: 0, ...extra,
     };
   }
 
@@ -386,9 +445,38 @@ export class Simulation {
     this.recomputeStats();
   }
 
+  /** Set the loadout the next run will use. Applied at start(); never mutates the hero definition. */
+  setLoadout(mods: LoadoutMods, ids: string[] = []) {
+    this.loadout = { ...BASE_MODS, ...mods };
+    this.loadoutIds = [...ids];
+    if (this.status === 'idle' || this.status === 'ended') {
+      this.runLoadout = { ...this.loadout };
+      this.recomputeStats();
+      this.ammo = this.magazineSize;
+    }
+  }
+
+  /** Clip size, reload time, crank distance and pierce count after the equipped loadout. */
+  get magazineSize() {
+    return this.hero.magazine ? this.runLoadout.magazine ?? this.hero.magazine.size : 0;
+  }
+  get reloadTime() {
+    return (this.hero.magazine?.reload ?? 1) * this.runLoadout.reloadMult;
+  }
+  get crankDistance() {
+    return this.runLoadout.crank ?? this.hero.crank ?? 90;
+  }
+  get pierceCount() {
+    return this.runLoadout.pierce ?? this.hero.pierce ?? 1;
+  }
+
   recomputeStats() {
     const before = this.stats;
     this.stats = computeStats(this.settings, this.relics, this.shards, this.questDone, this.tuning);
+    // Loadout handling parts scale the derived sheet once; the hero definition is untouched.
+    this.stats.moveSpeed *= this.runLoadout.moveMult;
+    this.stats.range *= this.runLoadout.rangeMult;
+    this.stats.splash *= this.runLoadout.splashMult;
     if (this.stats.maxHp > before.maxHp) this.hp += this.stats.maxHp - before.maxHp;
     this.hp = Math.min(this.hp, this.stats.maxHp);
     this.shield = Math.min(this.shield, this.stats.shieldMax);
@@ -399,6 +487,22 @@ export class Simulation {
 
   start() {
     this.status = 'running';
+    // Freeze the equipped loadout for this run.
+    this.runLoadout = { ...this.loadout };
+    this.sandbox = false;
+    this.wavesCleared = 0;
+    this.wardenWavesCleared = 0;
+    this.combatFacing = 0;
+    this.stunned = 0;
+    this.stunImmune = 0;
+    this.stunSource = '';
+    this.gazeQueue = [];
+    this.lastGaze = null;
+    this.charges = [];
+    this.selectedContract = null;
+    this.activeContract = null;
+    this.contractReceipt = null;
+    this.contractsSigned = 0;
     // Derive the cosmetic stream from the gameplay seed without consuming a gameplay draw.
     this.fx = new Rng(this.rng.seed ^ FX_SEED_SALT);
     this.elapsed = 0;
@@ -436,8 +540,10 @@ export class Simulation {
     this.lastFiredTarget = -1;
     this.tempoShots = 0;
     this.tempoFlash = 0;
+    this.lastShot = null;
+    this.shotId = 0;
+    this.proof = false;
     this.dashStruck = [];
-    this.ammo = this.hero.magazine?.size ?? 0;
     this.reloadLeft = 0;
     this.crank = 1;
     this.omens = [];
@@ -473,6 +579,7 @@ export class Simulation {
     this.particles = [];
     this.orbs = [];
     this.ghosts = [];
+    this.orders = [];
     this.relics = [];
     this.shards = {};
     this.offers = null;
@@ -500,10 +607,69 @@ export class Simulation {
     this.spawnQueue = [];
     this.waveState = 'none';
     this.recomputeStats();
+    this.ammo = this.magazineSize;
     this.hp = this.stats.maxHp;
     this.dashCharges = this.stats.dashCharges;
     this.resetTargets();
     if (this.isRun) this.beginWave(1);
+  }
+
+  /**
+   * Dev fixtures (brief 03): stage a scene in the current run without rewards. `witness` is one caster and nothing
+   * else; `witness-mix` adds a Reaver and two drones; `range` is the workbench firing range (three dummies).
+   */
+  fixture(name: 'witness' | 'witness-mix' | 'range' | 'style') {
+    if (this.status === 'idle' || this.status === 'ended' || this.status === 'choosing') this.start();
+    this.status = 'running';
+    this.sandbox = true;
+    this.enemies = [];
+    this.spawnQueue = [];
+    this.omens = [];
+    this.pendingEvents = [];
+    this.dangers = [];
+    this.bolts = [];
+    this.charges = [];
+    this.gazeQueue = [];
+    this.cullIds = [];
+    this.waveState = 'fighting';
+    this.fightTime = 0;
+    this.stunned = 0;
+    this.stunImmune = 0;
+    this.hp = this.stats.maxHp;
+    this.proof = name === 'style';
+    if (name === 'style') {
+      // Style proof (brief "visual identity", slice A): every material in one frame. A drone and an archer stand
+      // still (the archer keeps shooting, so a hostile telegraph is always on the floor), a Reaver chases at its
+      // normal speed so all four of its beats can be paused on, a pickup waits on the floor, and the player is
+      // ordered onto the drone so a shot is always in flight. Same renderer, same rules; only the staging is dev-only.
+      this.wave = Math.max(this.wave, 3);
+      this.player = { x: 560, y: 520 };
+      this.previous = { ...this.player };
+      const drone = this.spawnEnemy('drone', { x: 790, y: 440 });
+      drone.spawn = 1; drone.speed = 0; drone.hp = drone.maxHp = 1e6;
+      const archer = this.spawnEnemy('archer', { x: 940, y: 640 });
+      archer.spawn = 1; archer.speed = 0; archer.hp = archer.maxHp = 1e6; archer.cooldown = 0.6;
+      const reaver = this.spawnEnemy('reaver', { x: 260, y: 300 });
+      reaver.spawn = 1; reaver.hp = reaver.maxHp = 1e6;
+      this.orbs.push({ x: 700, y: 700, vx: 0, vy: 0, value: 3, life: 600, born: this.runTime });
+      this.attack(drone);
+      return;
+    }
+    if (name === 'range') {
+      for (const b of [{ x: 970, y: 400 }, { x: 1050, y: 630 }, { x: 550, y: 270 }]) {
+        this.enemies.push(this.makeEnemy('dummy', b, { hp: Infinity, maxHp: Infinity, radius: 20, invulnerable: true, base: { ...b } }));
+      }
+      return;
+    }
+    this.wave = Math.max(this.wave, Math.round(this.tuning.witnessDebut));
+    const w = this.spawnEnemy('witness', { x: clamp(this.player.x + 260, 80, W - 80), y: this.player.y });
+    w.spawn = 1;
+    w.hp = w.maxHp = 600;
+    if (name === 'witness-mix') {
+      const r = this.spawnEnemy('reaver', { x: clamp(this.player.x - 360, 80, W - 80), y: clamp(this.player.y - 200, 80, H - 80) });
+      r.spawn = 1;
+      for (const dy of [-260, 260]) { const d = this.spawnEnemy('drone', { x: clamp(this.player.x + 420, 80, W - 80), y: clamp(this.player.y + dy, 80, H - 80) }); d.spawn = 1; }
+    }
   }
 
   // ---------------------------------------------------------------- fx helpers
@@ -538,6 +704,14 @@ export class Simulation {
     });
   }
 
+  /** Mark a confirmed order where it was given. Called by the input layer on clicks, never on pointer drags. */
+  mark(kind: OrderMarker['kind'], p: Point) {
+    if (this.status !== 'running') return;
+    this.orders = this.orders.filter(o => o.kind !== kind || o.life < o.max * 0.5);
+    const life = kind === 'move' ? 0.5 : 0.6;
+    this.orders.push({ x: clamp(p.x, 20, W - 20), y: clamp(p.y, 20, H - 20), kind, life, max: life });
+  }
+
   ring(p: Point, color: string, size = 12) {
     this.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.45, max: 0.45, size, color, drag: 0, shape: 'ring', rot: 0, spin: 0 });
   }
@@ -547,6 +721,7 @@ export class Simulation {
   cancel() {
     if (this.windupLeft > 0) {
       this.cancelled++;
+      this.cancelEvent++;
       this.windupLeft = 0;
       this.cooldown = 0;
       this.effect(this.player, '#ffb56c', 'CANCELLED');
@@ -561,6 +736,9 @@ export class Simulation {
     this.target = null;
     this.armed = false;
     this.destination = { x: clamp(p.x, 40, W - 40), y: clamp(p.y, 55, H - 45) };
+    // Facing follows the ordered point, not the clamped destination, so a click past the wall still turns you.
+    // A zero-length order keeps the current facing. Movement itself waits out a stun; the intent is kept.
+    if (distance(this.player, p) > FACING_DEADZONE) this.combatFacing = Math.atan2(p.y - this.player.y, p.x - this.player.x);
     this.effect(this.destination, '#63e7d0');
   }
 
@@ -591,6 +769,8 @@ export class Simulation {
   attack(p: Point) {
     if (this.status !== 'running') return;
     this.armed = false;
+    // A stun blocks attack execution and buffers nothing.
+    if (this.stunned > 0) return;
     const t = this.acquire(p);
     if (!t) {
       // Classic attack-move: walk to the point and engage whatever comes into range.
@@ -604,7 +784,39 @@ export class Simulation {
     this.attackOrder = true;
     this.attackPoint = { ...p };
     this.destination = null;
+    this.faceTarget();
     this.effect(t, '#e7c177');
+  }
+
+  /** An accepted attack order faces its live target. */
+  faceTarget() {
+    if (this.target) this.combatFacing = Math.atan2(this.target.y - this.player.y, this.target.x - this.player.x);
+  }
+
+  /** Facing as a unit vector, for gaze geometry and the chevron cue. */
+  facingVector(): Point {
+    return { x: Math.cos(this.combatFacing), y: Math.sin(this.combatFacing) };
+  }
+
+  /**
+   * Control lock (brief 03). Cancels an unreleased windup and any queued attack, blocks move/attack/dash execution
+   * while it lasts, keeps the latest move destination to resume, and cannot be refreshed: a stun already running or
+   * the immunity window after it makes this a no-op. Returns whether it landed.
+   */
+  applyStun(seconds: number, source: string) {
+    if (this.dead || this.stunned > 0 || this.stunImmune > 0 || seconds <= 0) return false;
+    this.stunned = seconds;
+    this.stunSource = source;
+    this.stunEvent++;
+    this.cancel();
+    this.attackOrder = false;
+    this.attackPoint = null;
+    this.target = null;
+    this.armed = false;
+    this.effect({ x: this.player.x, y: this.player.y - 14 }, ENEMY_COLORS.witness, 'STUNNED', 20);
+    this.burst(this.player, ENEMY_COLORS.witness, 12, 200, 'dot', 2.5);
+    this.shake = Math.max(this.shake, 0.6);
+    return true;
   }
 
   /** Magazine and crank gates on the next shot. An empty clip starts its reload here. */
@@ -624,7 +836,7 @@ export class Simulation {
   startReload() {
     const mag = this.hero.magazine;
     if (!mag || this.reloadLeft > 0) return;
-    this.reloadLeft = mag.reload;
+    this.reloadLeft = this.reloadTime;
     if (mag.ping) {
       this.pingEvent++;
       this.effect({ x: this.player.x, y: this.player.y - 14 }, '#ffe9a8', 'PING', 15);
@@ -639,13 +851,13 @@ export class Simulation {
   /** Manual reload (R): eject a partial clip early. */
   reload() {
     const mag = this.hero.magazine;
-    if (this.status !== 'running' || !mag || this.ammo >= mag.size || this.reloadLeft > 0) return;
+    if (this.status !== 'running' || !mag || this.ammo >= this.magazineSize || this.reloadLeft > 0) return;
     if (this.windupLeft > 0) this.cancel();
     this.startReload();
   }
 
   dash(p: Point) {
-    if (this.status !== 'running' || this.dashCharges <= 0 || this.dashing > 0) return;
+    if (this.status !== 'running' || this.dashCharges <= 0 || this.dashing > 0 || this.stunned > 0) return;
     const d = distance(p, this.player);
     let dir = d > 1 ? { x: (p.x - this.player.x) / d, y: (p.y - this.player.y) / d } : { x: Math.cos(this.angle), y: Math.sin(this.angle) };
     if (this.hero.dashMode === 'away') dir = { x: -dir.x, y: -dir.y };
@@ -658,6 +870,8 @@ export class Simulation {
     if (this.dashCd <= 0) this.dashCd = this.stats.dashCd;
     this.destination = null;
     this.angle = Math.atan2(dir.y, dir.x);
+    // A dash faces its actual travel, including the Cannoneer's reversed hop.
+    this.combatFacing = this.angle;
     this.dashEvent++;
     this.ring(this.player, '#9ff5ff', 20);
     // A dash shakes off every attached Leech and leaves it stunned behind you.
@@ -701,7 +915,13 @@ export class Simulation {
     if (n >= 7) pool.push('miner', 'leech');
     if (n >= 8) pool.push('hexer');
     if (n >= 10) pool.push('bulwark', 'hexer', 'splitter', 'reaver');
+    if (n >= this.witnessDebut) pool.push('witness');
     return pool;
+  }
+
+  /** The wave a Witness first appears (tuning knob; guaranteed that wave, at most one alive per wave). */
+  get witnessDebut() {
+    return Math.max(1, Math.round(this.tuning.witnessDebut));
   }
 
   beginWave(n: number) {
@@ -733,7 +953,9 @@ export class Simulation {
     }
     this.bag = [];
     while (b > 0) {
-      const kind = this.drawKind(pool);
+      let kind = this.drawKind(pool);
+      // One Witness per wave: a second draw becomes filler rather than a duel of gazes.
+      if (kind === 'witness' && this.spawnQueue.includes('witness')) kind = 'drone';
       const cost = KIND_COST[kind];
       if (cost > b) {
         // Too rich for what is left: top up with filler instead of overspending.
@@ -811,6 +1033,7 @@ export class Simulation {
       : kind === 'miner' ? { hp: (34 + n * 7) * hpMult, radius: 15, speed: 195, gold: 3, cooldown: this.rng.range(1.2, 2) }
       : kind === 'hexer' ? { hp: (40 + n * 8) * hpMult, radius: 17, speed: 165, gold: 4, cooldown: 2.5 }
       : kind === 'reaver' ? { hp: (42 + n * 8) * hpMult, radius: 19, speed: 190 + Math.min(60, n * 4), gold: 2 }
+      : kind === 'witness' ? { hp: (52 + n * 9) * hpMult, radius: 17, speed: 150, gold: 4, cooldown: 2.2 }
       : { hp: (260 + n * 80) * hpMult * (n % 6 === 0 ? 1.6 : 1), radius: n % 6 === 0 ? 42 : 34, speed: 105, gold: 12, elite: true, cooldown: 1.6 };
     const e = this.makeEnemy(kind, p, { ...def, maxHp: def.hp, spawn: 0 });
     if (kind === 'bulwark') e.facing = Math.atan2(this.player.y - e.y, this.player.x - e.x);
@@ -869,6 +1092,8 @@ export class Simulation {
   /** One event per wave from wave 3; from wave 8 a second, independent 25% roll lands at least six seconds later. */
   scheduleEvents(n: number): MidEvent[] {
     const out: MidEvent[] = [];
+    // The Witness's introductory wave is held clear of surprises so its tell is met on its own.
+    if (n === this.witnessDebut) return out;
     const first = this.scheduleEvent(n);
     if (first) out.push(first);
     if (n >= 8 && this.rng.next() < 0.25) {
@@ -938,7 +1163,7 @@ export class Simulation {
       this.announce(kind, `${6 + n} GOLD ACROSS THE ARENA · 9 SECONDS`);
     } else {
       // A champion joins mid-fight, always affixed.
-      const pool = this.wavePool(n).filter(k => k !== 'drone');
+      const pool = this.wavePool(n).filter(k => k !== 'drone' && k !== 'witness');
       const e = this.spawnEnemy(pool.length ? this.rng.pick(pool) : 'drone');
       if (!e.affix) this.applyAffix(e, this.drawAffix());
       this.announce(kind, `A ${AFFIX_LABEL[e.affix!]} ${e.kind.toUpperCase()} JOINS THE FIGHT`);
@@ -1069,6 +1294,7 @@ export class Simulation {
     this.ascended = false;
     this.draftClaimed = false;
     this.claimedOffer = null;
+    this.selectedContract = null;
     this.offerTier = this.ascendNext ? 'prismatic' : offerTier(this.wave);
     // Pin the hidden first-Prismatic guarantee to the first shop that actually opens on or after its wave.
     if (!this.guaranteePinned && this.wave >= this.firstPrismaticWave) {
@@ -1154,15 +1380,39 @@ export class Simulation {
     if (this.status !== 'choosing' || !this.draftClaimed) return;
     this.offers = null;
     this.banishMode = false;
+    // Lock the contract with the numbers shown at departure; live tuning cannot change an accepted deal.
+    const offer = this.selectedContract ? this.contractOffer : null;
+    this.activeContract = offer ? { ...offer, settlementId: `c${++this.contractsSigned}:w${offer.wave}` } : null;
+    this.selectedContract = null;
     this.status = 'running';
     this.beginWave(this.wave + 1);
   }
 
+  /** The shop cadence as a whole number of waves (the shopEvery knob). */
+  get shopEvery() {
+    return Math.max(1, Math.round(this.tuning.shopEvery));
+  }
+
+  /** Does clearing `wave` open a refit? The one place the cadence rule is written. */
+  refitAfter(wave: number) {
+    return wave % this.shopEvery === 0;
+  }
+
   /** First wave after the current one whose clear opens a draft, from the actual shop cadence. */
   get nextShopWave() {
-    const every = Math.max(1, Math.round(this.tuning.shopEvery));
     let w = this.wave + 1;
-    while (w % every !== 0) w++;
+    while (!this.refitAfter(w)) w++;
+    return w;
+  }
+
+  /**
+   * The wave whose clear opens the next refit, for the combat HUD. During a fight this can be the current wave;
+   * inside an intermission it is the next shop wave (the current wave's refit is the one that is open).
+   */
+  get nextRefitWave() {
+    if (this.status === 'choosing') return this.nextShopWave;
+    let w = Math.max(1, this.wave);
+    while (!this.refitAfter(w)) w++;
     return w;
   }
 
@@ -1232,9 +1482,32 @@ export class Simulation {
 
   // ---------------------------------------------------------------- hazards
 
-  /** Incoming damage scale: difficulty, wave, enrage level (+10% each) and the Cull vulnerability. */
+  /** Overdraw: incoming damage multiplier while the contracted wave is being fought. Exactly one place applies it. */
+  get contractMult() {
+    return this.activeContract && this.activeContract.wave === this.wave ? this.activeContract.mult : 1;
+  }
+
+  /** Incoming damage scale: difficulty, wave, enrage level (+10% each), the Cull vulnerability and an Overdraw contract. */
   hazardDamage(base: number) {
-    return base * this.diff.dmg * this.tuning.enemyDamage * (1 + this.wave * 0.03) * (1 + this.enrage * 0.1) * (this.vulnerable ? CULL_VULNERABILITY : 1);
+    return base * this.diff.dmg * this.tuning.enemyDamage * (1 + this.wave * 0.03) * (1 + this.enrage * 0.1) * (this.vulnerable ? CULL_VULNERABILITY : 1) * this.contractMult;
+  }
+
+  /**
+   * The contract on offer this intermission (brief 04): from the configured wave, never on the Witness debut wave.
+   * Values are read live here and snapshotted into `activeContract` on departure.
+   */
+  get contractOffer(): ContractOffer | null {
+    if (this.status !== 'choosing') return null;
+    const wave = this.wave + 1;
+    if (wave < Math.round(this.tuning.overdrawFromWave) || wave === this.witnessDebut) return null;
+    return { id: 'overdraw', mult: this.tuning.overdrawMult, reward: Math.max(0, Math.round(this.tuning.overdrawGold)), wave };
+  }
+
+  /** Pick (or clear) the next-wave contract. Reversible until departure; Standard is the default. */
+  selectContract(id: ContractId | null) {
+    if (this.status !== 'choosing') return;
+    if (id !== null && this.contractOffer?.id !== id) return;
+    this.selectedContract = id;
   }
 
   /** Telegraph window after the tuning knob: how long a hazard warns before it goes live. */
@@ -1355,6 +1628,8 @@ export class Simulation {
   die() {
     this.hp = 0;
     this.dead = true;
+    // A contract expires on death: no payout, no lasting penalty.
+    this.activeContract = null;
     this.status = 'ended';
     this.armed = false;
     this.shake = 2;
@@ -1385,7 +1660,7 @@ export class Simulation {
     let chance = this.stats.critChance + bonusCrit;
     if (this.stats.frostbite && target && target.slow > 0) chance *= 2;
     const crit = this.rng.next() < chance;
-    return { damage: Math.round(this.stats.damage * this.damageMultiplier() * (crit ? this.stats.critMult : 1)), crit };
+    return { damage: Math.round(this.stats.damage * this.runLoadout.damageMult * this.damageMultiplier() * (crit ? this.stats.critMult : 1)), crit };
   }
 
   fireAt(target: Enemy, damage: number, crit: boolean, bounces: number, from: Point, heavy = false) {
@@ -1400,8 +1675,12 @@ export class Simulation {
     this.attackCount++;
     this.shotEvent++;
     this.flash = 0.14;
-    this.recoil = this.hero.weapon === 'cannon' ? 0.18 : this.hero.weapon === 'crossbow' ? 0.2 : this.hero.weapon === 'garand' ? 0.14 : this.hero.weapon === 'pistols' ? 0.08 : 0.12;
+    this.recoil = WEAPON_PRESENTATION[this.hero.weapon].recoil;
+    // Launch record for the renderer: the exact direction the primary bolt leaves in, at the moment it leaves.
+    this.lastShot = { id: ++this.shotId, x: this.player.x, y: this.player.y, angle: this.aimAngle, weapon: this.hero.weapon, time: this.runTime };
     // Ammunition: a clip round leaves the magazine (the last one starts the reload); a crank shot spends the crank.
+    // Final round (chase part): the last round in the clip punches through into one more body.
+    const punch = !!this.hero.magazine && this.runLoadout.finalRound && this.ammo === 1;
     if (this.hero.magazine) {
       this.ammo = Math.max(0, this.ammo - 1);
       if (this.ammo === 0) this.startReload();
@@ -1440,7 +1719,13 @@ export class Simulation {
     const { damage: rolled, crit } = this.rollDamage(this.target, bonusCrit);
     const damage = Math.round(rolled * boltMult);
     if (this.hero.pierce) this.firePierce(this.target, damage, crit);
-    else this.fireAt(this.target, damage, crit, this.stats.bounces, this.player, this.hero.weapon === 'cannon');
+    else {
+      this.fireAt(this.target, damage, crit, this.stats.bounces, this.player, this.hero.weapon === 'cannon');
+      if (punch) {
+        this.bolts[this.bolts.length - 1].punch = true;
+        this.effect({ x: this.player.x, y: this.player.y - 12 }, '#ffe9a8', 'FINAL ROUND', 13);
+      }
+    }
     // Split Shot: extra bolts at the next nearest enemies in range (or the same target).
     const others = this.targetable()
       .filter(e => e.id !== this.target!.id && distance(e, this.player) <= this.stats.range + e.radius)
@@ -1467,7 +1752,7 @@ export class Simulation {
     this.bolts.push({
       x: this.player.x, y: this.player.y, origin: { ...this.player }, target, damage, crit, bounces: 0,
       speed: 1500 * this.tuning.boltSpeed, trail: [], splash: this.stats.splash, heavy: true,
-      dir, pierce: this.hero.pierce ?? 1, struck: [], travel: 0, maxTravel: this.stats.range + 140,
+      dir, pierce: this.pierceCount, struck: [], travel: 0, maxTravel: this.stats.range + 140,
     });
   }
 
@@ -1490,6 +1775,14 @@ export class Simulation {
         return;
       }
       this.damageEnemy(e, dmg, b.crit);
+      // Spool return (chase part): threading three bodies hands half the crank back, once per quarrel.
+      if (this.runLoadout.spoolReturn && !b.spooled && b.struck!.length >= 3) {
+        b.spooled = true;
+        const was = this.crank;
+        this.crank = Math.min(1, this.crank + 0.5);
+        this.effect({ x: this.player.x, y: this.player.y - 14 }, this.hero.colors.capeTrim, 'SPOOL RETURN', 13);
+        if (this.crank >= 1 && was < 1) { this.loadedEvent++; this.attackReadyPulse = 0.35; }
+      }
       if (b.struck!.length >= b.pierce!) {
         b.x = -9999;
         return;
@@ -1563,7 +1856,8 @@ export class Simulation {
    * Bulwarks and latched Leeches do not budge; heavy cannon shells shove harder.
    */
   knock(e: Enemy, scale = 1) {
-    if (e.elite || e.kind === 'dummy' || e.latched || (e.kind === 'bulwark' && e.pattern === 1)) return;
+    // A Witness mid-windup is rooted: its painted radius must not drift and its tell must not stutter under fire.
+    if (e.elite || e.kind === 'dummy' || e.latched || (e.kind === 'bulwark' && e.pattern === 1) || (e.kind === 'witness' && e.gazePhase === 'windup')) return;
     const dx = e.x - this.player.x, dy = e.y - this.player.y, d = Math.hypot(dx, dy) || 1;
     const force = KNOCKBACK * this.tuning.knockback * scale * (this.hero.weapon === 'cannon' ? 1.6 : 1);
     e.kx += dx / d * force;
@@ -1915,6 +2209,48 @@ export class Simulation {
         }
         break;
       }
+      case 'witness': {
+        // Approach, windup, recovery. During the windup the caster stops: its centre and radius do not track the player.
+        // The gaze is queued when the eye opens and resolved after the player's targeting and motion this tick.
+        if (e.gazePhase === 'windup') {
+          e.gazeTimer -= dt;
+          if (e.gazeTimer <= 0) {
+            this.gazeQueue.push(e.id);
+            e.gazePhase = 'recovery';
+            e.gazeTimer = WITNESS.recover;
+          }
+          return;
+        }
+        if (e.gazePhase === 'recovery') {
+          e.gazeTimer -= dt;
+          if (e.gazeTimer <= 0) {
+            e.gazePhase = 'approach';
+            e.cooldown = this.tuning.witnessCooldown;
+          }
+          break;
+        }
+        const ideal = this.tuning.witnessRadius * WITNESS.ideal;
+        if (dist > ideal + 40) {
+          e.x += dir.x * speed * dt;
+          e.y += dir.y * speed * dt;
+        } else if (dist < ideal - 90) {
+          e.x -= dir.x * speed * 0.7 * dt;
+          e.y -= dir.y * speed * 0.7 * dt;
+        } else {
+          const s = e.id % 2 ? 1 : -1;
+          e.x += -dir.y * s * speed * 0.5 * dt;
+          e.y += dir.x * s * speed * 0.5 * dt;
+        }
+        e.cooldown -= dt;
+        if (e.cooldown <= 0 && dist < this.tuning.witnessRadius * 0.9) {
+          e.gazePhase = 'windup';
+          e.gazeTimer = Math.max(WITNESS.windupFloor, this.telegraph(this.tuning.witnessWindup));
+          e.facing = e.angle;
+          this.gazeEvent++;
+          this.ring(e, ENEMY_COLORS.witness, e.radius + 10);
+        }
+        break;
+      }
       case 'warden': {
         if (dist > 330) {
           e.x += dir.x * speed * dt;
@@ -1951,7 +2287,7 @@ export class Simulation {
   effectiveWindup() {
     if (!this.hero.heat) return this.stats.windup;
     if (this.stats.overclock && this.heat >= HEAT_MAX) return this.stats.windup;
-    return this.stats.windup * (1 + this.heat * 0.12);
+    return this.stats.windup * (1 + this.heat * 0.12 * this.runLoadout.heatPenaltyMult);
   }
 
   /** Player move speed after Leech drag. */
@@ -1975,6 +2311,11 @@ export class Simulation {
     this.eliteFlash = Math.max(0, this.eliteFlash - dt);
     this.impact = Math.max(0, this.impact - dt);
     this.tempoFlash = Math.max(0, this.tempoFlash - dt);
+    // Control lock: the stun runs down, then the immunity window opens. Nothing here pauses reloads or cooldowns.
+    if (this.stunned > 0) {
+      this.stunned = Math.max(0, this.stunned - dt);
+      if (this.stunned === 0) this.stunImmune = WITNESS.stunImmunity;
+    } else this.stunImmune = Math.max(0, this.stunImmune - dt);
     if (this.eventBanner) {
       this.eventBanner.life -= dt;
       if (this.eventBanner.life <= 0) this.eventBanner = null;
@@ -1996,7 +2337,7 @@ export class Simulation {
       this.reloadLeft -= dt;
       if (this.reloadLeft <= 0) {
         this.reloadLeft = 0;
-        this.ammo = this.hero.magazine?.size ?? 0;
+        this.ammo = this.magazineSize;
         this.loadedEvent++;
         this.attackReadyPulse = 0.35;
       }
@@ -2038,14 +2379,18 @@ export class Simulation {
     for (const e of this.enemies) if (!e.dead) this.updateEnemy(e, dt);
     this.latched = this.enemies.reduce((n, e) => n + (!e.dead && e.latched ? 1 : 0), 0);
     if (this.target?.dead) this.target = null;
-    if (this.target) this.aimAngle = Math.atan2(this.target.y - this.player.y, this.target.x - this.player.x);
+    if (this.target) {
+      this.aimAngle = Math.atan2(this.target.y - this.player.y, this.target.x - this.player.x);
+      // A live target keeps turning the player as either of them moves.
+      this.combatFacing = this.aimAngle;
+    }
 
-    // Attack timing
+    // Attack timing (a stun blocks execution; the release of an already cancelled windup cannot happen)
     if (this.windupLeft > 0) {
       this.windupLeft -= dt;
       if (this.windupLeft <= 0) this.release();
     }
-    if (this.attackOrder && this.windupLeft <= 0) {
+    if (this.attackOrder && this.windupLeft <= 0 && this.stunned <= 0) {
       if (!this.target) {
         // Attack-move without a target: engage anything in range, else keep walking to the point.
         const t = this.targetable()
@@ -2054,6 +2399,7 @@ export class Simulation {
         if (t) {
           this.target = t;
           this.destination = null;
+          this.faceTarget();
         } else if (this.attackPoint && !this.destination && distance(this.player, this.attackPoint) > 2) {
           this.destination = { ...this.attackPoint };
         }
@@ -2086,7 +2432,7 @@ export class Simulation {
     if (this.dashing > 0) {
       const step = Math.min(this.dashing, dt);
       this.dashing = Math.max(0, this.dashing - dt);
-      const v = DASH_SPEED * this.tuning.dashDistance;
+      const v = DASH_SPEED * this.tuning.dashDistance * (this.hero.dashMode === 'away' ? this.runLoadout.hopMult : 1);
       const nx = clamp(this.player.x + this.dashDir.x * v * step, 40, W - 40);
       const ny = clamp(this.player.y + this.dashDir.y * v * step, 55, H - 45);
       moved = Math.hypot(nx - this.player.x, ny - this.player.y);
@@ -2109,7 +2455,7 @@ export class Simulation {
           }
         }
       }
-    } else if (this.destination && this.windupLeft <= 0) {
+    } else if (this.destination && this.windupLeft <= 0 && this.stunned <= 0) {
       const d = distance(this.player, this.destination), step = Math.min(d, this.effectiveMoveSpeed() * dt);
       if (d > 0.01) {
         this.angle = Math.atan2(this.destination.y - this.player.y, this.destination.x - this.player.x);
@@ -2136,7 +2482,7 @@ export class Simulation {
       this.stillTime = 0;
       // Arbalest: walking rewinds the crank; a full crank clicks ready.
       if (this.hero.crank && this.crank < 1) {
-        this.crank = Math.min(1, this.crank + moved / this.hero.crank);
+        this.crank = Math.min(1, this.crank + moved / this.crankDistance);
         if (this.crank >= 1) {
           this.loadedEvent++;
           this.attackReadyPulse = 0.35;
@@ -2171,6 +2517,25 @@ export class Simulation {
     }
     for (const g of this.ghosts) g.life -= dt;
     this.ghosts = this.ghosts.filter(g => g.life > 0);
+    for (const o of this.orders) o.life -= dt;
+    this.orders = this.orders.filter(o => o.life > 0);
+
+    // Gazes queued by Witnesses this tick resolve now, after targeting, facing and motion have settled.
+    this.resolveGazes();
+
+    // Friendly ground charges (delayed burst) count down and detonate on enemies only; they never splash again.
+    if (this.charges.length) {
+      for (const ch of this.charges) {
+        ch.age += dt;
+        if (ch.age < ch.delay) continue;
+        this.chargeEvent++;
+        this.ring(ch, '#ffd27a', ch.radius);
+        this.burst(ch, '#ffd27a', 14, 260, 'dot', 3);
+        this.shake = Math.max(this.shake, 0.3);
+        for (const e of this.targetable()) if (distance(e, ch) < ch.radius + e.radius) this.damageEnemy(e, ch.damage, false);
+      }
+      this.charges = this.charges.filter(ch => ch.age < ch.delay);
+    }
 
     // Bolts
     for (const b of this.bolts) {
@@ -2332,7 +2697,20 @@ export class Simulation {
           const bonus = 4 + Math.floor(this.wave * 0.6);
           this.gold += bonus;
           this.waveEvent++;
+          this.wavesCleared++;
+          if (this.wardenCount(this.wave) > 0) this.wardenWavesCleared++;
           this.effect({ x: this.player.x, y: this.player.y - 20 }, '#ffd66b', `+${bonus} GOLD`, 17);
+          // Contract settlement at the same authoritative boundary: one payout, receipted apart from the clear bonus.
+          const c = this.activeContract;
+          if (c) {
+            if (c.wave === this.wave) {
+              this.gold += c.reward;
+              this.contractReceipt = { id: c.id, wave: c.wave, reward: c.reward, clearBonus: bonus, settlementId: c.settlementId };
+              this.contractEvent++;
+              this.effect({ x: this.player.x, y: this.player.y - 44 }, '#ffb35c', `+${c.reward} OVERDRAW`, 17);
+            }
+            this.activeContract = null;
+          }
           this.burst(this.player, '#a2ebcd', 40, 320, 'dot', 3);
           this.ring(this.player, '#a2ebcd', 60);
           // Sweep leftover hazards (including mines and miasma) so the shop is not interrupted.
@@ -2345,7 +2723,7 @@ export class Simulation {
         if (this.waveTimer <= 0) {
           this.waveState = 'none';
           // Reward cadence: a draft opens every N waves; the waves in between roll straight on.
-          if (this.wave % Math.max(1, Math.round(this.tuning.shopEvery)) === 0) this.openShop();
+          if (this.refitAfter(this.wave)) this.openShop();
           else this.beginWave(this.wave + 1);
         }
         break;
@@ -2363,6 +2741,10 @@ export class Simulation {
 
   landBolt(b: Bolt) {
     const t = b.target;
+    // Delayed burst (chase part): the shell buries itself where it lands and goes off a beat later.
+    if (this.runLoadout.delayedBurst && this.hero.heat && !b.dir) {
+      this.charges.push({ x: t.x, y: t.y, delay: DELAYED_BURST.delay, age: 0, radius: DELAYED_BURST.radius, damage: Math.max(1, Math.round(b.damage * DELAYED_BURST.share)) });
+    }
     if (!t.dead) {
       if (this.blocks(t, b)) {
         t.block = 0.25;
@@ -2387,13 +2769,80 @@ export class Simulation {
         .sort((a, c) => distance(a, t) - distance(c, t))[0];
       if (next) this.fireAt(next, Math.max(1, Math.round(b.damage * 0.7)), b.crit, b.bounces - 1, t);
     }
+    // Final round: carry on into the nearest other body at full damage, once.
+    if (b.punch) {
+      const next = this.targetable()
+        .filter(e => e.id !== t.id && !e.dead && distance(e, t) < PUNCH_REACH)
+        .sort((a, c) => distance(a, t) - distance(c, t))[0];
+      if (next) {
+        this.fireAt(next, b.damage, b.crit, 0, t);
+        this.effect({ x: t.x, y: t.y - t.radius - 22 }, '#ffe9a8', 'PUNCH', 13);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- witness gaze
+
+  /**
+   * Gaze geometry, shared by the resolution and the on-screen cue so they can never disagree. Exposed means inside
+   * the radius (the exact boundary is safe) and facing within the arc (dot strictly greater than cos(arc)); zero
+   * distance counts as exposed.
+   */
+  gazeGeometry(e: Enemy) {
+    const dx = e.x - this.player.x, dy = e.y - this.player.y, dist = Math.hypot(dx, dy);
+    const inRadius = dist < this.tuning.witnessRadius;
+    const arc = this.tuning.witnessArc * Math.PI / 180;
+    const f = this.facingVector();
+    const dot = dist === 0 ? 1 : (dx / dist) * f.x + (dy / dist) * f.y;
+    const facing = dist === 0 || dot > Math.cos(arc);
+    return { dist, inRadius, facing, exposed: inRadius && facing, offsetDeg: Math.acos(clamp(dot, -1, 1)) * 180 / Math.PI, toWitness: Math.atan2(dy, dx) };
+  }
+
+  /** Witnesses currently winding up. */
+  get gazing() {
+    return this.enemies.filter(e => !e.dead && e.kind === 'witness' && e.gazePhase === 'windup');
+  }
+
+  /** Would the player be caught if any winding-up Witness released now? Drives the LOOK AWAY / safe cue. */
+  get gazeExposed() {
+    return this.gazing.some(e => this.gazeGeometry(e).exposed);
+  }
+
+  /** Resolve every gaze that came due this tick, once, from the settled position and facing. */
+  resolveGazes() {
+    if (!this.gazeQueue.length) return;
+    for (const id of this.gazeQueue) {
+      const e = this.enemies.find(x => x.id === id);
+      // A caster killed before resolution takes its gaze with it.
+      if (!e || e.dead) continue;
+      const g = this.gazeGeometry(e);
+      this.gazeReleaseEvent++;
+      this.ring(e, '#ffffff', this.tuning.witnessRadius * 0.25);
+      this.burst(e, ENEMY_COLORS.witness, 16, 260, 'dot', 3);
+      let stunned = false;
+      if (g.exposed) {
+        if (this.invulnerable > 0) this.effect({ x: this.player.x, y: this.player.y - 26 }, '#9ff5ff', 'DASHED THROUGH', 14);
+        else stunned = this.applyStun(this.tuning.witnessStun, 'WITNESS');
+      } else {
+        this.dodged++;
+        this.streak++;
+        this.best = Math.max(this.best, this.streak);
+        this.advanceQuest('dodges');
+        this.effect({ x: this.player.x, y: this.player.y - 26 }, '#a2ebcd', g.inRadius ? 'LOOKED AWAY' : 'OUT OF REACH', 14);
+      }
+      this.lastGaze = {
+        wave: this.wave, time: this.runTime, distance: g.dist, facingDeg: this.combatFacing * 180 / Math.PI, toWitnessDeg: g.toWitness * 180 / Math.PI,
+        offsetDeg: g.offsetDeg, exposed: g.exposed, stunned,
+      };
+    }
+    this.gazeQueue = [];
   }
 
   // ---------------------------------------------------------------- snapshot
 
   snapshot(): Snapshot {
     const reloading = this.reloadLeft > 0, cranking = !!this.hero.crank && this.crank < 1;
-    const phase = this.armed ? 'AIMING' : this.dashing > 0 ? 'DASH' : this.windupLeft > 0 ? 'WINDUP' : reloading ? 'RELOAD' : cranking ? 'CRANK' : this.cooldown > 0 ? 'RECOVERY' : 'READY';
+    const phase = this.stunned > 0 ? 'STUNNED' : this.armed ? 'AIMING' : this.dashing > 0 ? 'DASH' : this.windupLeft > 0 ? 'WINDUP' : reloading ? 'RELOAD' : cranking ? 'CRANK' : this.cooldown > 0 ? 'RECOVERY' : 'READY';
     const elite = this.enemies.find(e => e.elite && !e.dead);
     const quest = this.quest;
     return {
@@ -2409,7 +2858,7 @@ export class Simulation {
       moved: this.elapsed ? this.movingTime / this.elapsed * 100 : 0,
       phase,
       progress: this.windupLeft > 0 ? 1 - this.windupLeft / this.windupTotal
-        : reloading ? 1 - this.reloadLeft / (this.hero.magazine?.reload ?? 1)
+        : reloading ? 1 - this.reloadLeft / this.reloadTime
         : cranking ? this.crank
         : 1 - this.cooldown * this.effectiveAttackSpeed(),
       streak: this.streak,
@@ -2446,6 +2895,7 @@ export class Simulation {
       claimedOffer: this.claimedOffer,
       nextWave: this.wave + 1,
       nextShopWave: this.nextShopWave,
+      nextRefitWave: this.nextRefitWave,
       healAmount: this.healAmount,
       anvilPreview: this.status === 'choosing' ? this.anvilPreview() : [],
       shards: { ...this.shards },
@@ -2461,8 +2911,8 @@ export class Simulation {
       tempoReady: this.tempoReady,
       tempoShots: this.tempoShots,
       ammo: this.ammo,
-      ammoMax: this.hero.magazine?.size ?? 0,
-      reload: reloading ? 1 - this.reloadLeft / (this.hero.magazine?.reload ?? 1) : 0,
+      ammoMax: this.magazineSize,
+      reload: reloading ? 1 - this.reloadLeft / this.reloadTime : 0,
       crank: this.hero.crank ? this.crank : 1,
       event: this.eventBanner?.text ?? null,
       enrageIn: this.waveState === 'fighting' ? this.enrageLimit - this.fightTime : this.enrageLimit,
@@ -2470,6 +2920,20 @@ export class Simulation {
       cull: this.cullAlive,
       dead: this.dead,
       eliteHp: elite ? elite.hp / elite.maxHp : null,
+      stunned: this.stunned,
+      stunSource: this.stunSource,
+      combatFacing: this.combatFacing,
+      gazeActive: this.gazing.length > 0,
+      gazeExposed: this.gazeExposed,
+      lastGaze: this.lastGaze,
+      contractOffer: this.contractOffer,
+      selectedContract: this.selectedContract,
+      activeContract: this.activeContract,
+      contractReceipt: this.contractReceipt,
+      wavesCleared: this.wavesCleared,
+      wardenWavesCleared: this.wardenWavesCleared,
+      sandbox: this.sandbox,
+      loadout: [...this.loadoutIds],
     };
   }
 }
