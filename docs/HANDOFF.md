@@ -3,8 +3,9 @@
 Current checkpoint. Replace this file at the end of each slice; it is not a diary.
 
 **Feature / slice:** Briefs 02 "A coherent machine-world" (slice A) and 03 "Make the release visible" (slice A,
-Marksman pilot), built 2026-09-06 on top of the still uncommitted briefs 01, 03/04/05 (Refit 3, Witness, Overdraw,
-Armoury; see the previous handoff's symbols in `docs/SYSTEM-MAP.md`). The whole tree is uncommitted. Both slices are
+Marksman pilot), built 2026-09-06 on top of briefs 01, 03/04/05 (Refit 3, Witness, Overdraw,
+Armoury; see the previous handoff's symbols in `docs/SYSTEM-MAP.md`). **Deployed 2026-09-06 as `49989fd`**, which
+also carried those four previously uncommitted briefs to https://1v5.dev/ for the first time. Both slices are
 cosmetic: no rule, timing, command, save key, snapshot field or seeded draw changed. Slice B of either brief (other
 actors and weapons, shop glyphs, weapon signatures) is deliberately not started; it waits on the bow and Reaver being
 accepted in play.
@@ -59,6 +60,13 @@ flips with the Screen shake toggle (`rs.reducedMotion` true/false checked from t
 particles off / dense in the browser (gameplay is pinned by `tests/determinism.test.mjs`; the player and Reaver
 draws do not read `tuning.particles`), sound in the ear (the synth changes are code-reviewed only), the pixel
 alternative (not attempted, per the brief it is a separate experiment).
+
+**Deploy (2026-09-06):** commit `49989fd` pushed to `main`; the Pages workflow passed `npm ci`, `npm test` and
+`npm run build` and published. Live check on https://1v5.dev/: the served bundle hash matches the local build, the
+Armoury prices show on the class picker, the Refit 3 experiment appears under FEEL, `C · contract` is in the hotkey
+strip, wave 1 of a Marksman run renders the new casing body, and `window.__orbwalk` is correctly absent in
+production. No console errors. This was the first deploy for the Witness, Overdraw, Armoury and refit briefs as
+well as for this slice, so **the live site is four briefs ahead of anything Oscar has played in production.**
 
 **Known issues / open decisions:**
 - The Style proof Reaver hits a standing player for 14 every swing; kite it or, from the console, `__orbwalk.hp =
