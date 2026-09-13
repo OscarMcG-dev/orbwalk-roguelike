@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arcana Pets — a tarot autobattler</title>
+    <style>
+      /* Fonts are bundled locally (public/fonts) so the game works fully
+         offline and under file:// in the desktop build. */
+      @font-face {
+        font-family: 'IM Fell English';
+        font-style: normal;
+        font-weight: 400;
+        font-display: block;
+        src: url('./fonts/imfellenglish-regular.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'IM Fell English';
+        font-style: italic;
+        font-weight: 400;
+        font-display: block;
+        src: url('./fonts/imfellenglish-italic.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'Pirata One';
+        font-style: normal;
+        font-weight: 400;
+        font-display: block;
+        src: url('./fonts/pirataone-latin.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'Pirata One';
+        font-style: normal;
+        font-weight: 400;
+        font-display: block;
+        src: url('./fonts/pirataone-latin-ext.woff2') format('woff2');
+        unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7,
+          U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+          U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+      }
+
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0; padding: 0; height: 100%; overflow: hidden;
+        background: #14100c;
+        font-family: 'IM Fell English', Georgia, serif;
+      }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; image-rendering: auto; }
+      #boot {
+        position: fixed; inset: 0; display: grid; place-items: center;
+        color: #d9c08a; font-family: 'Pirata One', 'IM Fell English', serif;
+        font-size: 32px; letter-spacing: 2px; pointer-events: none;
+        transition: opacity .6s ease;
+      }
+      #boot.gone { opacity: 0; }
+    </style>
+    <script type="module" crossorigin src="./assets/index-D-Rwr5Qx.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="boot">shuffling the deck…</div>
+  </body>
+</html>

@@ -94,6 +94,20 @@ Node 22.6+ is required (tests import `.ts` directly through Node's type strippin
 
 `research/candlesan/` holds transcripts pulled with yt-dlp from sixteen Candlesan game-design videos plus `NOTES.md`, a synthesis with prioritised recommendations, and `ECONOMY.md`, a second synthesis on drop economies, pity, punishment and difficulty pacing that drove the meta-economy tuning (measured before and after in `research/BASELINE-v0.3.md`). The tuning deliberately keeps draft variance and instead lowers the guaranteed power floor and prices the answers, because the transcripts are clear that runs punished by the rarity roll itself produce rage-quits rather than tension. The impact bump, marble-bag enemy draws, offer pity, overkill-scaled bursts, dash-ready chime and the Twin Step trade-off came straight from it, as did the champion affixes (rare elite spawns that break autopilot), the per-archetype telegraphs on the new enemies, and the nested difficulty curve where each enemy kind debuts on a fixed wave.
 
+## Hosting
+
+This repo is what GitHub Pages serves for `1v5.dev`. A custom domain maps to one repo, so a second game rides along as a
+static folder rather than its own site:
+
+| URL | Source |
+| --- | --- |
+| `https://1v5.dev/` | this repo, built by `.github/workflows/deploy.yml` |
+| `https://1v5.dev/arcana-pets/` | the checked-in build in `public/arcana-pets/`, copied verbatim into `dist/` |
+
+`public/arcana-pets/` is build output, not source. The source lives in the sibling `arcana-pets` repo; refresh the copy
+with `npm run sync:arcana` (it builds there and re-copies) and commit the result. CI does not rebuild it — whatever is
+committed is what deploys.
+
 ## Differences from the Codex original
 
 The original shipped on the Vinext / Cloudflare / shadcn starter tied to Codex hosting. This clone runs on plain Vite + React with no UI library, and the one-line-per-method source was expanded into readable modules. Attack-move now behaves like the real thing when nothing is in range (walk to the point, engage on the way), and the game loop keeps stepping through a timeout watchdog when `requestAnimationFrame` stalls.
