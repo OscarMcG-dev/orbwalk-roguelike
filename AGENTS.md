@@ -1,7 +1,8 @@
 # Working in this repository
 
 Orbwalk Rogue: an ADC kiting roguelike. Vite + React + TypeScript, Canvas rendering, a headless deterministic
-`Simulation` at 120 Hz. Deployed to https://1v5.dev/ from `main` by GitHub Actions.
+`Simulation` at 120 Hz. Deployed to https://1v5.dev/orbwalk/ from `main` by GitHub Actions; the site root is the
+1v5.dev launcher (`index.html`, `src/launcher/`), which is not part of the game. In dev the game is `/orbwalk/`.
 
 ## Start here
 

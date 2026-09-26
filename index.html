@@ -2,12 +2,146 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Orbwalk Rogue — ADC kiting roguelike</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>1v5.dev · a shelf of browser games</title>
+    <meta name="description" content="Play Orbwalk Rogue, Arcana Pets and Closing Time in your browser. A small shelf of games made at 1v5.dev, behind a PSX-era launcher." />
+    <link rel="canonical" href="https://1v5.dev/" />
+    <link rel="icon" type="image/svg+xml" href="/launcher-icon.svg" />
+    <meta name="theme-color" content="#030b14" />
+    <meta name="color-scheme" content="dark" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="1v5.dev" />
+    <meta property="og:title" content="1v5.dev · a shelf of browser games" />
+    <meta property="og:description" content="Orbwalk Rogue, Arcana Pets and Closing Time, playable in the browser, behind a PSX-era launcher." />
+    <meta property="og:url" content="https://1v5.dev/" />
+    <meta property="og:image" content="https://1v5.dev/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The 1v5.dev launcher: glossy game props on glowing pedestals over a wet, reflective floor at night." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Old deep links into Orbwalk Rogue (it used to live at the apex) keep working: ?tuning=… and ?dev forward.
+      (function () {
+        var q = new URLSearchParams(location.search);
+        if (q.has('tuning') || q.has('dev')) location.replace('/orbwalk/' + location.search + location.hash);
+        document.documentElement.classList.add('js');
+      })();
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": "1v5.dev games",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "item": { "@type": "VideoGame", "name": "Orbwalk Rogue", "url": "https://1v5.dev/orbwalk/", "genre": "Roguelike", "gamePlatform": "Web browser" } },
+          { "@type": "ListItem", "position": 2, "item": { "@type": "VideoGame", "name": "Arcana Pets", "url": "https://1v5.dev/arcana-pets/", "genre": "Autobattler", "gamePlatform": "Web browser" } },
+          { "@type": "ListItem", "position": 3, "item": { "@type": "VideoGame", "name": "Closing Time", "url": "https://1v5.dev/closing-time/", "genre": "Extraction shooter", "gamePlatform": "Web browser" } }
+        ]
+      }
+    </script>
+    <link rel="stylesheet" href="/src/launcher/launcher.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <canvas id="stage" aria-hidden="true"></canvas>
+    <div class="backdrop" aria-hidden="true">
+      <div class="backdrop-glow"></div>
+      <div class="backdrop-floor"></div>
+    </div>
+    <div class="scan" aria-hidden="true"></div>
+    <pre class="boot" id="boot" aria-hidden="true"></pre>
+    <div class="flash" aria-hidden="true"></div>
+
+    <header class="bar">
+      <h1 class="mark">
+        <a href="/" aria-label="1v5.dev">
+          <span class="mark-orb" aria-hidden="true"></span>
+          <span class="mark-text">1v5<span class="mark-tld">.dev</span></span>
+        </a>
+      </h1>
+      <p class="tagline">a shelf of small browser games</p>
+      <div class="bar-right">
+        <div class="memcard" id="memcard" role="img" aria-label="Memory card: checking for saves">
+          <span class="memcard-label">MEMORY CARD <b>1</b></span>
+          <span class="memcard-blocks" id="memcard-blocks"></span>
+        </div>
+        <button class="gel-icon" id="mute" type="button" aria-pressed="false" title="Sound (M)" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9h4l5-4v14l-5-4H4z" /><path class="on" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" /><path class="off" d="M16.5 9.5l5 5m0-5l-5 5" /></svg>
+          <span class="sr-only" id="mute-label">Sound</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="deck">
+      <section class="panel" id="panel" aria-label="Selected game">
+        <p class="panel-slot"><span id="panel-slot">BLOCK 01</span><span class="panel-state" id="panel-state">LIVE</span></p>
+        <h2 class="panel-title" id="panel-title">Orbwalk Rogue</h2>
+        <p class="panel-kind" id="panel-kind">ADC kiting roguelike</p>
+        <p class="panel-pitch" id="panel-pitch">Right-click to move, attack between steps. Move before the release and the shot cancels; that is the whole skill. Waves, a draft, permadeath.</p>
+        <dl class="panel-meta">
+          <div><dt>Input</dt><dd id="panel-controls">Mouse + keyboard · desktop</dd></div>
+          <div><dt>Built with</dt><dd id="panel-tech">React · Canvas · 120 Hz sim</dd></div>
+        </dl>
+        <p class="panel-save" id="panel-save" hidden><span class="save-dot" aria-hidden="true"></span>Save data on this card</p>
+        <a class="gel-button" id="panel-play" href="/orbwalk/"><span class="gel-label">Play</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" /></svg></a>
+      </section>
+
+      <nav class="shelf" aria-label="Games">
+        <ul id="shelf">
+          <li class="tile live" data-game="orbwalk" style="--accent: #7ff5d0">
+            <a class="tile-hit" href="/orbwalk/" aria-describedby="pitch-orbwalk">
+              <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" /><path d="M12 2v5M12 17v5M2 12h5M17 12h5" /><circle class="fill" cx="12" cy="12" r="1.6" /></svg></span>
+              <span class="tile-text"><span class="tile-title">Orbwalk Rogue</span><span class="tile-kind">ADC kiting roguelike</span></span>
+            </a>
+            <p class="tile-pitch" id="pitch-orbwalk">Right-click to move, attack between steps. Move before the release and the shot cancels; that is the whole skill. Waves, a draft, permadeath.</p>
+          </li>
+          <li class="tile live" data-game="arcana-pets" style="--accent: #c9a7ff">
+            <a class="tile-hit" href="/arcana-pets/" aria-describedby="pitch-arcana-pets">
+              <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="1.5" /><path d="M12 7.2l1.4 3 3.2.4-2.4 2.2.7 3.2L12 14.4 9.1 16l.7-3.2-2.4-2.2 3.2-.4z" /></svg></span>
+              <span class="tile-text"><span class="tile-title">Arcana Pets</span><span class="tile-kind">Tarot autobattler</span></span>
+            </a>
+            <p class="tile-pitch" id="pitch-arcana-pets">A Super Auto Pets-style autobattler dealt from all 78 tarot cards. Every ability is a reading of its card, and a card laid in the back half of your spread is read reversed.</p>
+          </li>
+          <li class="tile live" data-game="closing-time" style="--accent: #ff7eb6">
+            <a class="tile-hit" href="/closing-time/" aria-describedby="pitch-closing-time">
+              <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 9l2-5h13l2 5zM5 11.5V20h14v-8.5M9 20v-5h6v5" /></svg></span>
+              <span class="tile-text"><span class="tile-title">Closing Time</span><span class="tile-kind">Night-market extraction shooter</span></span>
+            </a>
+            <p class="tile-pitch" id="pitch-closing-time">The night market is shutting. Slip into the stalls and back alleys, read who is watching, take what is worth taking and get out before the shutters come down.</p>
+          </li>
+          <li class="tile locked" data-game="stutterstep" style="--accent: #8fd3ff">
+            <button class="tile-hit" type="button" aria-disabled="true" aria-describedby="pitch-stutterstep">
+              <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="2.5" /><path d="M12 5a7 7 0 0 1 7 7" /></svg></span>
+              <span class="tile-text"><span class="tile-title">Stutterstep</span><span class="tile-kind">In the workshop</span></span>
+            </button>
+            <p class="tile-pitch" id="pitch-stutterstep">Orbwalk on the keyboard alone: walk, stop, shoot, walk again. Tumble and Condemn on a beat. Not playable here yet.</p>
+          </li>
+          <li class="tile locked" data-game="sausage-lab" style="--accent: #ffb86b">
+            <button class="tile-hit" type="button" aria-disabled="true" aria-describedby="pitch-sausage-lab">
+              <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="2.5" /><path d="M12 5a7 7 0 0 1 7 7" /></svg></span>
+              <span class="tile-text"><span class="tile-title">Sausage Lab</span><span class="tile-kind">In the workshop</span></span>
+            </button>
+            <p class="tile-pitch" id="pitch-sausage-lab">Four weird riffs on one soft-body sausage, including an online co-op duet. Not playable here yet.</p>
+          </li>
+          <li class="tile locked" data-game="dead-channel" style="--accent: #9aa7ff">
+            <button class="tile-hit" type="button" aria-disabled="true" aria-describedby="pitch-dead-channel">
+              <span class="tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="2.5" /><path d="M12 5a7 7 0 0 1 7 7" /></svg></span>
+              <span class="tile-text"><span class="tile-title">DEAD CHANNEL</span><span class="tile-kind">In the workshop</span></span>
+            </button>
+            <p class="tile-pitch" id="pitch-dead-channel">A first-person movement shooter prototype: one arena, three enemy roles, two weapons. Not playable here yet.</p>
+          </li>
+        </ul>
+      </nav>
+    </main>
+
+    <footer class="foot">
+      <p class="hints" id="hints" aria-hidden="true">
+        <span><kbd>◀</kbd><kbd>▶</kbd> browse</span>
+        <span><kbd id="hint-go">↵</kbd> play</span>
+        <span><kbd>M</kbd> sound</span>
+      </p>
+      <p class="credit"><a href="https://github.com/OscarMcG-dev/orbwalk-roguelike">source</a> · <span class="bios" id="bios">1V5 SYSTEM · BIOS 1.0</span></p>
+    </footer>
+
+    <script type="module" src="/src/launcher/main.ts"></script>
   </body>
 </html>

@@ -84,8 +84,20 @@ function styleFrames(): Plugin {
   };
 }
 
-// Served from the root of https://1v5.dev/ in production, so base stays '/'.
+// Two pages share one build and base '/': the 1v5.dev launcher at the root (index.html, src/launcher/) and
+// Orbwalk Rogue at /orbwalk/ (orbwalk/index.html, src/main.tsx). Same origin, so the game's localStorage saves
+// carried over when it moved off the apex. public/<game>/ folders ride along verbatim.
 export default defineConfig({
   plugins: [react(), playtestNotes(), styleFrames()],
   server: { port: 5199, strictPort: false },
+  build: {
+    // The launcher's three.js stage is one lazily loaded ~570 kB (145 kB gzipped) chunk; that is expected.
+    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
+      input: {
+        launcher: resolve(__dirname, 'index.html'),
+        orbwalk: resolve(__dirname, 'orbwalk/index.html'),
+      },
+    },
+  },
 });

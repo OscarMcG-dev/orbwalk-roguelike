@@ -9,7 +9,8 @@ npm install
 npm run dev
 ```
 
-Open the printed localhost URL. Everything is mouse + keyboard.
+Open the printed localhost URL and add `/orbwalk/` (the root is the 1v5.dev launcher, see Hosting). Everything is
+mouse + keyboard. Live at https://1v5.dev/orbwalk/.
 
 | Input | Action |
 | --- | --- |
@@ -96,14 +97,19 @@ Node 22.6+ is required (tests import `.ts` directly through Node's type strippin
 
 ## Hosting
 
-This repo is what GitHub Pages serves for `1v5.dev`. A custom domain maps to one repo, so a second game rides along as a
-static folder rather than its own site (other games do the same):
+This repo is what GitHub Pages serves for `1v5.dev`. A custom domain maps to one repo, so the other games ride along as
+static folders rather than their own sites, and the root is a launcher that lists them all:
 
 | URL | Source |
 | --- | --- |
-| `https://1v5.dev/` | this repo, built by `.github/workflows/deploy.yml` |
+| `https://1v5.dev/` | the launcher: `index.html` + `src/launcher/` (three.js PSX stage, lazy-loaded), built by `.github/workflows/deploy.yml` |
+| `https://1v5.dev/orbwalk/` | this game: `orbwalk/index.html` + `src/main.tsx`, the second Vite input in `vite.config.ts` |
 | `https://1v5.dev/arcana-pets/` | the checked-in build in `public/arcana-pets/`, copied verbatim into `dist/` |
 | `https://1v5.dev/closing-time/` | the checked-in Godot web export in `public/closing-time/` (`npm run sync:closing-time`) |
+
+Orbwalk Rogue lived at the apex until 2026-09-26. Saves are per origin, so they carried over untouched; old deep links
+with `?tuning=…` or `?dev` are forwarded to `/orbwalk/` by an inline script in `index.html`. To add a game to the
+launcher, see "Launcher" in `docs/HANDOFF.md`.
 
 `public/arcana-pets/` is build output, not source. The source lives in the sibling `arcana-pets` repo; refresh the copy
 with `npm run sync:arcana` (it builds there and re-copies) and commit the result. CI does not rebuild it — whatever is

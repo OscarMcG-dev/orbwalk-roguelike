@@ -2,6 +2,26 @@
 
 Current checkpoint. Replace this file at the end of each slice; it is not a diary.
 
+## Launcher (2026-09-26, separate from the game slice below)
+
+https://1v5.dev/ is now a launcher; Orbwalk Rogue moved to https://1v5.dev/orbwalk/ (same origin, so saves carry
+over; `?tuning=` / `?dev` at the root forward to `/orbwalk/`). Nothing under `src/game/` or `src/ui/` changed (the game's
+CSS bundle hash is identical to the pre-move build; its JS entry is renamed `orbwalk-*.js`). Code: `index.html` (static tiles, the real `<a>` links and the no-JS
+view), `src/launcher/games.ts` (the shelf), `main.ts` (input, sound, memory card), `scene.ts` (three.js stage, lazily
+imported, about 145 kB gzipped; the rest of the launcher is under 12 kB). Row "1v5.dev launcher" in `SYSTEM-MAP.md`.
+
+**Add a game tile:** host it first (a checked-in build in `public/<name>/`, like Arcana Pets, or another Vite input).
+Then (1) add an entry to `GAMES` in `src/launcher/games.ts` with `href: '/<name>/'`, a `prop` (`orb`, `card`, `stall`
+or `disc`; a new prop is a `prop*` function in `scene.ts` plus a branch in `createStage`), an `accent` and its
+localStorage `saveKeys`; (2) copy an existing `<li class="tile live">` in `index.html` and match the id, title, href
+and pitch; (3) add it to the JSON-LD list in `index.html`; (4) `npm test` (`tests/launcher.test.mjs` checks the two
+lists agree and that the path is really served). A workshop tile is the same without `href`, as `<li class="tile
+locked">` with a `<button aria-disabled>`.
+
+**Check it:** `npm run dev`, then `/`, `/?still` (reduced motion), `/?nogl` (2D fallback), `/?boot` (replay the BIOS
+lines). In dev, `__launcher.stage.capture(w, h, seconds)` returns a PNG of the stage after advancing its clock, which
+works even when the tab is hidden; POST it to `/__style-frame` to keep it. `public/og.jpg` was made that way.
+
 **Feature / slice:** Briefs 02 "A coherent machine-world" (slice A) and 03 "Make the release visible" (slice A,
 Marksman pilot), built 2026-09-06 on top of briefs 01, 03/04/05 (Refit 3, Witness, Overdraw,
 Armoury; see the previous handoff's symbols in `docs/SYSTEM-MAP.md`). **Deployed 2026-09-06 as `49989fd`**, which
