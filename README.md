@@ -97,12 +97,13 @@ Node 22.6+ is required (tests import `.ts` directly through Node's type strippin
 ## Hosting
 
 This repo is what GitHub Pages serves for `1v5.dev`. A custom domain maps to one repo, so a second game rides along as a
-static folder rather than its own site:
+static folder rather than its own site (other games do the same):
 
 | URL | Source |
 | --- | --- |
 | `https://1v5.dev/` | this repo, built by `.github/workflows/deploy.yml` |
 | `https://1v5.dev/arcana-pets/` | the checked-in build in `public/arcana-pets/`, copied verbatim into `dist/` |
+| `https://1v5.dev/closing-time/` | the checked-in Godot web export in `public/closing-time/` (`npm run sync:closing-time`) |
 
 `public/arcana-pets/` is build output, not source. The source lives in the sibling `arcana-pets` repo; refresh the copy
 with `npm run sync:arcana` (it builds there and re-copies) and commit the result. CI does not rebuild it — whatever is

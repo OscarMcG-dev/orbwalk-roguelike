@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "sync:arcana": "node tools/sync-arcana.mjs",
+    "sync:closing-time": "node tools/sync-closing-time.mjs",
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
