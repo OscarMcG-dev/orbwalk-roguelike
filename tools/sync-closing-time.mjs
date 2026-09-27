@@ -9,7 +9,7 @@
 // Nothing in CI does it: the checked-in copy is what deploys.
 
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,6 +45,14 @@ if (!existsSync(join(build, 'index.pck')) || !existsSync(join(build, 'index.wasm
 
 rmSync(dest, { recursive: true, force: true });
 cpSync(build, dest, { recursive: true });
+// Download page at /closing-time/download/: the Windows zip is a GitHub release asset (tag closing-time-build) so
+// 40+ MB builds never enter git history. Its URL is stable; the page just records which build it is.
+const commit = execFileSync('git', ['-C', source, 'rev-parse', '--short', 'HEAD']).toString().trim();
+const page = readFileSync(new URL('./closing-time-download.html', import.meta.url), 'utf8')
+  .replaceAll('{{DATE}}', new Date().toISOString().slice(0, 10)).replaceAll('{{COMMIT}}', commit)
+  .replaceAll('{{ZIP_URL}}', 'https://github.com/OscarMcG-dev/orbwalk-roguelike/releases/download/closing-time-build/ClosingTime-win64.zip');
+mkdirSync(join(dest, 'download'), { recursive: true });
+writeFileSync(join(dest, 'download', 'index.html'), page);
 let total = 0;
 for (const f of readdirSync(dest)) {
   const size = statSync(join(dest, f)).size;

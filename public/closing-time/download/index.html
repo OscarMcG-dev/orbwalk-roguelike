@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Closing Time: download</title>
+<style>
+  :root { --bg: #f4f2ee; --fg: #1d1b19; --muted: #6b665f; --accent: #b4561f; --card: #fffdf9; --line: #ddd6cc; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #16181d; --fg: #e8e6e3; --muted: #a09a92; --accent: #f0a050; --card: #1f2228; --line: #33363d; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .meta { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  a.btn { display: inline-block; background: var(--accent); color: #fff; text-decoration: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; }
+  a { color: var(--accent); }
+  ol { padding-left: 20px; margin: 12px 0 0; }
+  small { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Closing Time</h1>
+  <p class="meta">Build 2026-09-27 · commit aa033fe</p>
+  <div class="card">
+    <a class="btn" href="https://github.com/OscarMcG-dev/orbwalk-roguelike/releases/download/closing-time-build/ClosingTime-win64.zip">Download for Windows (64-bit)</a>
+    <ol>
+      <li>Unzip anywhere.</li>
+      <li>Run <code>ClosingTime.exe</code>. If Windows SmartScreen warns you: <em>More info</em>, then <em>Run anyway</em> (the build isn't signed).</li>
+    </ol>
+    <p><small>Co-op needs the Windows build and a shared ZeroTier network (UDP 24565).</small></p>
+  </div>
+  <div class="card">
+    <a href="../">Play in the browser</a> <small>(no co-op; saves stay in that browser)</small>
+  </div>
+</main>
+</body>
+</html>
