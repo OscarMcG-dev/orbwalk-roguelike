@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Closing Time (a separate Godot project at ../closing-time) lives at https://1v5.dev/closing-time/ as a Windows
-// download and playtest page. The zip is a GitHub release asset (tag closing-time-build, a stable URL), so no build
+// download page: the backdrop scene and one download plate, nothing else. The zip is a GitHub release asset (tag closing-time-build, a stable URL), so no build
 // ever enters git; this script packs it and writes the page that describes it.
 //
 //   npm run sync:closing-time              pack the newest tested zip, then write the page
 //   ... -- --no-pack                       rewrite the page from the last pack (build/ClosingTime-win64.json)
-//   ... -- --card=<path>                   use this test card instead of the newest docs/playtest/*-card-r*.md
+//   ... -- --card=<path>                   pack this test card instead of the newest docs/playtest/*-card-r*.md
 //   ... -- --commit=<sha>                  stamp this commit (when master moved on after the export)
 //   ... -- --allow-untested                pack a -untested zip (the page then says so)
 //   ... -- --web                           also export the shelved web build into public/closing-time/web/
@@ -13,9 +13,10 @@
 // The page's backdrop shader lives in tools/closing-time-backdrop.frag and is inlined (no extra request).
 // Pack: copies closing-time/build/ClosingTime-win64-<date>.zip (from `.\export.ps1`) to build/ClosingTime-win64.zip,
 // adds the test card as ClosingTime/TEST-CARD.txt, and records date, commit, size and SHA-256 in
-// build/ClosingTime-win64.json. Page: tools/closing-time-page.html with the card rendered in, to
-// public/closing-time/index.html; public/closing-time/download/ redirects there (old links). Hand-made page assets
-// (screenshots, the m5x7 font, og.jpg) sit in public/closing-time/assets/ and are not touched.
+// build/ClosingTime-win64.json. Page: tools/closing-time-page.html stamped with that build (date and size on the
+// plate, commit and SHA-256 in its title and a comment), to public/closing-time/index.html; the test card lives only
+// in the zip. public/closing-time/download/ redirects there (old links). Hand-made page assets (the m5x7 font, og.jpg)
+// sit in public/closing-time/assets/ and are not touched.
 //
 // Publish (docs/recipes/deploy-web.md in closing-time): upload the zip first, then push, so the page never
 // describes a zip that is not there yet.
@@ -25,7 +26,6 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderCard } from './closing-time-card.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = resolve(here, '../../closing-time');
@@ -114,8 +114,8 @@ const stamp = has('no-pack')
 
 // ---------------------------------------------------------------- page
 
-const card = renderCard(cardMd);
-const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const [y, mo, d] = stamp.date.split('-').map(Number);
 const fill = {
   DATE: stamp.date,
   COMMIT: stamp.commit,
@@ -123,12 +123,8 @@ const fill = {
   SHA256: stamp.sha256,
   TESTED: stamp.tested ? 'tested' : 'untested',
   ZIP_URL,
-  CARD: card.html,
-  CARD_ID: card.id,
-  CARD_TITLE: esc(card.title),
-  CARD_SHORT: esc(card.short),
-  CARD_COUNT: String(card.count),
-  CARD_MINUTES: String(card.minutes),
+  DATE_STAMP: `${d} ${MONTHS[mo - 1]} ${y}`,
+  SIZE_STAMP: String(Math.round(stamp.size / 1048576)),
   SHADER: readFileSync(new URL('./closing-time-backdrop.frag', import.meta.url), 'utf8').trimEnd(),
 };
 let page = readFileSync(new URL('./closing-time-page.html', import.meta.url), 'utf8');
@@ -153,7 +149,7 @@ writeFileSync(join(dest, 'download', 'index.html'), `<!doctype html>
 </body>
 </html>
 `);
-console.log(`Wrote public/closing-time/index.html (build ${stamp.date} ${stamp.commit}, card ${stamp.card}: ${card.count} items) and the download/ redirect`);
+console.log(`Wrote public/closing-time/index.html (build ${stamp.date} ${stamp.commit}, ${(stamp.size / 1048576).toFixed(1)} MB) and the download/ redirect`);
 
 // ---------------------------------------------------------------- shelved web build (opt-in)
 

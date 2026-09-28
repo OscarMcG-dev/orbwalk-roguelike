@@ -13,6 +13,8 @@ uniform float u_shut;   // how far the shutter has come down, 0..1 of the screen
 uniform float u_vel;    // |shutter speed|, for the rattle
 uniform float u_lamp;   // sodium lamp, 0..1 (JS flickers it)
 uniform vec2 u_look;    // pointer, -1..1, a little parallax
+uniform float u_glow;   // the download plate is hovered or pressed: light spills round it, 0..1
+uniform vec2 u_plate;   // the plate's centre, 0..1 of the screen (y up)
 
 const vec3 SODIUM = vec3(1.0, 0.58, 0.2);
 const vec3 CANDLE = vec3(1.0, 0.78, 0.46);
@@ -266,6 +268,10 @@ void main() {
   col = mix(col, sharp * 1.25 + fog * 0.3, wet);                   // beads: a small sharp picture, brighter
   col *= 1.0 - 0.25 * wet * (1.0 - smoothstep(0.0, 0.5, wet));     // their dark rims
   col += BONE * 0.55 * glint;
+
+  // The plate hangs under the shutter: a soft sodium pool behind it that grows when you reach for it.
+  float dp = length((uv - u_plate) * vec2(asp, 1.0));
+  col += SODIUM * (0.06 + 0.42 * u_glow) * u_lamp * glow(dp, 0.26 + 0.14 * u_glow);
 
   // The shutter comes down over it all, with a shadow on the glass under its edge.
   float edge = 1.0 - u_shut;

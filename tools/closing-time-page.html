@@ -3,697 +3,162 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Closing Time · Windows playtest build · 1v5.dev</title>
-<meta name="description" content="Closing Time, a top-down night-market extraction shooter. Download the Windows playtest build ({{DATE}}), with tonight's test card, controls, co-op and how to send feedback.">
+<title>Closing Time · download for Windows · 1v5.dev</title>
+<meta name="description" content="Closing Time, a top-down night-market extraction shooter. Download the Windows playtest build ({{DATE}}).">
 <link rel="canonical" href="https://1v5.dev/closing-time/">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%235b1c18'/%3E%3Crect x='1' y='1' width='14' height='14' fill='none' stroke='%23e6dcc2'/%3E%3Cpath d='M3 4h10M3 6h10M3 8h10M3 10h10' stroke='%23e6dcc2' stroke-opacity='.55'/%3E%3Crect x='6' y='11' width='4' height='2' fill='%23ffb347'/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0a09">
 <meta name="color-scheme" content="dark">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="1v5.dev">
-<meta property="og:title" content="Closing Time · Windows playtest build">
-<meta property="og:description" content="The night market is shutting. Get in, take what is worth taking, get out before the shutters come down. Windows build {{DATE}} and tonight's test card.">
+<meta property="og:title" content="Closing Time · download for Windows">
+<meta property="og:description" content="The night market is shutting. Get in, take what is worth taking, get out before the shutters come down.">
 <meta property="og:url" content="https://1v5.dev/closing-time/">
 <meta property="og:image" content="https://1v5.dev/closing-time/assets/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Closing Time: a rainy night-market square from above, sodium lamps, scavs in the lamplight, enamel exit plates on the HUD.">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="assets/m5x7.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Closing Time Windows build {{DATE}}, commit {{COMMIT}} ({{TESTED}}), {{SIZE_MB}} MB, SHA-256 {{SHA256}}.
+     The test card ships inside the zip as ClosingTime/TEST-CARD.txt. Written by orbwalk-roguelike/tools/sync-closing-time.mjs. -->
 <script>
-  // Before first paint: script on, and the reduced-motion switch (?still forces it, like the launcher).
   (function () {
     var d = document.documentElement, q = new URLSearchParams(location.search);
     d.classList.add('js');
     if (q.has('still')) d.classList.add('still');
-    if (q.has('nogl')) d.classList.add('no-gl');
   })();
 </script>
 <style>
-/* Closing Time's page on 1v5.dev. A grimy gothic night market at closing time: soot, bone paint on enamel plates,
-   sodium and candle light, rain, a roller shutter. Same site as the launcher: its mark, its mono microtype, its
-   dithered low-res shader, its glass panels (sooted here). The game's own exit-plate colours (ui/exit_style.gd). */
-@font-face { font-family: "m5x7"; src: url("assets/m5x7.woff2") format("woff2"); font-display: swap; }
-
+/* One scene and one control: the shutter-and-wet-glass backdrop, and an enamel plate hanging from the shutter's
+   bottom bar on two chains. The plate is the download. Colours are the game's exit plates (ui/exit_style.gd). */
+@font-face { font-family: "m5x7"; src: url("assets/m5x7.woff2") format("woff2"); font-display: block; }
 :root {
-  --soot: #0b0a09;
-  --soot-2: #13110e;
-  --char: #1a1612;
-  --bone: #e6dcc2;
-  --bone-dim: #8f8672;
-  --bone-faint: #5d574b;
-  --enamel: #2c4a33;
-  --enamel-hi: #3b6044;
-  --oxblood: #5b1c18;
-  --oxblood-hi: #7a2a22;
-  --rust: #b0672e;
+  --soot: #0b0a09; --bone: #e6dcc2; --bone-dim: #9a917c; --enamel: #2c4a33; --enamel-hi: #36593e; --oxblood: #5b1c18;
   --sodium: #ffb347;
-  --sodium-deep: #c46a1c;
-  --candle: #ffd48a;
-  --warn: #d4553d;
-  --aqua: #62f4e6;
-  --panel: rgba(16, 13, 11, 0.8);
-  --edge: rgba(230, 220, 194, 0.14);
-  --lamp: 1;
-  --pixel: "m5x7", ui-monospace, "Cascadia Mono", Consolas, monospace;
-  --font: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
-  --gutter: max(16px, env(safe-area-inset-left));
+  --shut: 0.22;            /* the shutter's bottom edge, 0..1 of the viewport height (JS follows the shader) */
+  --swing: 0deg; --glow: 0; --lamp: 1;
+  --pixel: "m5x7", ui-monospace, Consolas, monospace;
   color-scheme: dark;
 }
-
 * { box-sizing: border-box; }
-html { background: var(--soot); scroll-behavior: smooth; }
-html.still, html.still * { scroll-behavior: auto; }
-body {
-  margin: 0; min-height: 100vh; background: var(--soot); color: var(--bone);
-  font: 16px/1.55 var(--font); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
-  overflow-x: hidden;
-}
-a { color: var(--sodium); text-underline-offset: 3px; }
-a:hover { color: var(--candle); }
-:focus-visible { outline: 2px solid var(--sodium); outline-offset: 3px; }
-code, kbd { font-family: var(--mono); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
-.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.px { font-family: var(--pixel); font-weight: 400; letter-spacing: 0.02em; -webkit-font-smoothing: none; font-smooth: never; }
+html, body { margin: 0; height: 100%; background: var(--soot); overflow: hidden; }
+body { -webkit-tap-highlight-color: transparent; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-/* ---------- backdrop: the shader, its CSS stand-in, grain ---------- */
-
-#bg {
-  position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0;
-  image-rendering: pixelated; image-rendering: crisp-edges;
-  opacity: 0; transition: opacity 1.1s ease;
-}
+#bg { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; image-rendering: crisp-edges; opacity: 0; transition: opacity 1s ease; }
 html.gl-ready #bg { opacity: 1; }
-.bg-fallback {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+/* No WebGL: the same scene in CSS, a shutter down to --shut over a sodium haze. */
+.fallback {
+  position: fixed; inset: 0; pointer-events: none; transition: opacity 1s ease;
   background:
-    repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.35) 0 2px, rgba(120, 110, 95, 0.1) 2px 6px, rgba(0, 0, 0, 0.25) 6px 13px) top / 100% 22vh no-repeat,
-    linear-gradient(180deg, #1c1a17 0 22vh, transparent 22vh),
-    radial-gradient(28vmax 22vmax at 72% 38%, rgba(255, 170, 70, 0.28), transparent 70%),
-    radial-gradient(60vmax 20vmax at 70% 78%, rgba(255, 150, 60, 0.12), transparent 70%),
-    linear-gradient(180deg, #07080a 0%, #0f0d0b 55%, #0a0908 64%, #050404 100%);
-  transition: opacity 1.2s ease;
+    repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0 2px, rgba(140, 128, 108, 0.12) 2px 6px, rgba(0, 0, 0, 0.3) 6px 12px) top / 100% 22vh no-repeat,
+    linear-gradient(180deg, #24211d 0 22vh, #0c0a09 22vh 22.4vh, transparent 22.4vh),
+    radial-gradient(22vmax 18vmax at 50% 44%, rgba(255, 170, 70, 0.2), transparent 70%),
+    radial-gradient(26vmax 20vmax at 78% 50%, rgba(255, 160, 60, 0.26), transparent 70%),
+    radial-gradient(70vmax 18vmax at 72% 84%, rgba(255, 150, 60, 0.1), transparent 70%),
+    linear-gradient(180deg, #07080a 0%, #110e0b 55%, #0a0908 70%, #050404 100%);
 }
-html.gl-ready .bg-fallback { opacity: 0; }
-.grain {
-  position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0.5;
-  background: radial-gradient(120% 90% at 50% 40%, transparent 50%, rgba(0, 0, 0, 0.55) 100%);
-}
+html.gl-ready .fallback { opacity: 0; }
 
-/* ---------- header (the launcher's mark) ---------- */
-
-.bar {
-  position: relative; z-index: 5; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  padding: max(16px, env(safe-area-inset-top)) var(--gutter) 0;
-  max-width: 1180px; margin: 0 auto;
+/* The plate hangs from the shutter's bottom edge, centred; it rides the shutter and swings with it. */
+.hang {
+  position: fixed; left: 50%; top: calc(var(--shut) * 100vh - 4px); top: calc(var(--shut) * 100svh - 4px);
+  width: min(430px, calc(100vw - 32px)); transform: translateX(-50%) rotate(var(--swing)); transform-origin: 50% 0;
+  padding-top: 64px; opacity: 0;
 }
-.mark { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; }
-.mark-orb {
-  width: 24px; height: 24px; border-radius: 50%; flex: none;
-  background: radial-gradient(60% 40% at 50% 22%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 70%), radial-gradient(circle at 50% 65%, #9ffff2 0%, #22cfc9 45%, #05414c 100%);
-  box-shadow: 0 0 14px rgba(98, 244, 230, 0.45), inset 0 -3px 6px rgba(0, 40, 50, 0.6);
-}
-.mark-text {
-  font-size: 24px; font-weight: 700; letter-spacing: -0.02em; line-height: 1;
-  background: linear-gradient(180deg, #ffffff 0%, #d9fffb 46%, #6fe6e0 54%, #c9fff9 100%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.mark-text b { font-weight: 400; }
-.crumbs { margin: 2px 0 0; font: 11px var(--mono); letter-spacing: 0.14em; color: var(--bone-faint); text-transform: uppercase; padding-left: 14px; border-left: 1px solid var(--edge); }
-.crumbs a { color: var(--bone-dim); text-decoration: none; }
-.crumbs a:hover { color: var(--aqua); }
-.crumbs b { color: var(--bone); font-weight: 600; }
-.slot { margin: 2px 0 0 auto; font: 11px var(--mono); letter-spacing: 0.14em; color: var(--bone-dim); text-shadow: 0 1px 2px #000; text-transform: uppercase; }
-.slot b { color: var(--sodium); font-weight: 600; text-shadow: 0 0 8px rgba(255, 179, 71, calc(0.55 * var(--lamp))); }
-
-/* ---------- hero ---------- */
-
-main { position: relative; z-index: 2; overflow-x: clip; }
-.hero {
-  position: relative;
-  min-height: calc(100vh - 60px); min-height: calc(100svh - 60px);
-  max-width: 1180px; margin: 0 auto; padding: 7vh var(--gutter) 64px;
-  display: grid; grid-template-columns: minmax(0, 600px); align-content: center;
-}
-
-/* a soft soot scrim behind the words, so the busy glass never fights the text */
-.hero::before {
-  content: ""; position: absolute; z-index: -1; pointer-events: none; top: 0; bottom: 0; left: -30vw; right: -10vw;
-  background: radial-gradient(48% 52% at 36% 56%, rgba(6, 5, 4, 0.62), rgba(6, 5, 4, 0.3) 55%, transparent 80%);
-}
-
-/* The shop sign: an oxblood enamel plate on two chains, bone letters, rivets, soot run-off. */
-.sign-wrap { position: relative; justify-self: start; padding-top: 44px; transform-origin: 50% 0; }
-html.js:not(.still) .sign-wrap { animation: sign-in 1.6s cubic-bezier(0.3, 1.4, 0.4, 1) both 0.5s, sway 7s ease-in-out infinite 2.1s; }
-@keyframes sign-in { from { transform: translateY(-140px) rotate(-5deg); opacity: 0; } 40% { opacity: 1; } }
-@keyframes sway { 0%, 100% { transform: rotate(0.5deg); } 50% { transform: rotate(-0.6deg); } }
+html.ready .hang { opacity: 1; transition: opacity 0.4s ease; }
 .chain {
-  position: absolute; top: 0; width: 6px; height: 50px;
+  position: absolute; top: 0; width: 6px; height: 68px;
   background: repeating-linear-gradient(180deg, #6e675a 0 5px, #2a2622 5px 7px, #8a8171 7px 10px, #2a2622 10px 12px);
-  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.6);
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.7);
 }
-.chain.l { left: 13%; } .chain.r { right: 13%; }
-.sign {
-  position: relative; margin: 0; padding: 18px 30px 14px;
+.chain.l { left: 18%; } .chain.r { right: 18%; }
+.chain::after { /* the ring through the plate's hole */
+  content: ""; position: absolute; left: -4px; bottom: -8px; width: 14px; height: 14px; border-radius: 50%;
+  border: 3px solid #7d7566; box-shadow: 0 1px 0 #000;
+}
+
+.plate {
+  position: relative; display: block; text-decoration: none; color: var(--bone); text-align: center;
+  padding: 20px 22px 14px; cursor: pointer; outline: none;
   background:
-    radial-gradient(120% 90% at 85% -10%, rgba(255, 190, 110, calc(0.22 * var(--lamp))), transparent 55%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 30%),
-    linear-gradient(180deg, transparent 72%, rgba(10, 6, 4, 0.55) 100%),
-    var(--oxblood);
+    radial-gradient(90% 70% at 50% 0%, rgba(255, 196, 120, calc(0.1 + 0.18 * var(--glow))), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 35%),
+    linear-gradient(180deg, transparent 70%, rgba(6, 10, 7, 0.55)),
+    var(--enamel);
   border: 3px solid var(--bone);
-  outline: 3px solid var(--oxblood); outline-offset: 0;
-  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.75), 0 0 60px rgba(255, 150, 60, calc(0.14 * var(--lamp))), inset 0 0 0 3px var(--oxblood), inset 0 0 0 5px rgba(230, 220, 194, 0.28);
-  color: var(--bone); line-height: 0.82; text-align: center;
+  box-shadow:
+    inset 0 0 0 3px var(--enamel), inset 0 0 0 5px rgba(230, 220, 194, 0.28),
+    6px 8px 0 rgba(0, 0, 0, 0.72),
+    0 0 calc(30px + 50px * var(--glow)) rgba(255, 170, 80, calc(0.1 + 0.25 * var(--glow)));
+  transition: transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.4), box-shadow 0.25s ease, background-color 0.25s ease;
+  -webkit-font-smoothing: none;
 }
-.sign::before, .sign::after { /* rivets */
-  content: ""; position: absolute; top: 9px; width: 8px; height: 8px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #efe6cf, #8f8672 60%, #3a342c);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 calc(100% + 0px) 0 transparent;
+.plate::before, .plate::after { /* rivets */
+  content: ""; position: absolute; top: 10px; width: 9px; height: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #efe6cf, #8f8672 60%, #3a342c); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
 }
-.sign::before { left: 9px; } .sign::after { right: 9px; }
-.sign .word { display: block; font-size: 96px; text-shadow: 4px 4px 0 rgba(12, 6, 4, 0.85); }
-.sign .word + .word { margin-top: 4px; }
-.sign .sub { display: block; margin-top: 14px; font-size: 16px; line-height: 1; letter-spacing: 0.3em; text-transform: uppercase; color: var(--bone-dim); text-shadow: 1px 1px 0 #000; }
-.sign .drip { /* soot run-off under the plate */
-  position: absolute; left: 12%; right: 30%; top: 100%; height: 26px; pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(8, 6, 5, 0.55) 20%, transparent 32%, rgba(8, 6, 5, 0.4) 58%, transparent 70%, rgba(8, 6, 5, 0.5) 84%, transparent);
+.plate::before { left: 10px; } .plate::after { right: 10px; }
+.plate:hover, .plate:focus-visible { background-color: var(--enamel-hi); }
+.plate:focus-visible { box-shadow: inset 0 0 0 3px var(--enamel), inset 0 0 0 5px rgba(230, 220, 194, 0.28), 6px 8px 0 rgba(0, 0, 0, 0.72), 0 0 0 3px var(--sodium); }
+.plate:active, .plate.pressed { transform: translateY(4px) scale(0.985); box-shadow: inset 0 0 0 3px var(--enamel), inset 0 0 0 5px rgba(230, 220, 194, 0.28), 2px 3px 0 rgba(0, 0, 0, 0.72), 0 0 90px rgba(255, 180, 90, 0.4); }
+.row { display: flex; align-items: center; justify-content: center; gap: 16px; }
+.letter {
+  flex: none; width: 52px; height: 52px; display: grid; place-items: center; border: 3px solid var(--bone);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 50%), #24402b; box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+.letter svg { width: 26px; height: 26px; fill: var(--bone); }
+html.js:not(.still) .plate:hover .letter svg, html.js:not(.still) .plate:focus-visible .letter svg { animation: drop 0.9s cubic-bezier(0.5, 0, 0.5, 1) infinite; }
+@keyframes drop { 0% { transform: translateY(-34px); } 45%, 70% { transform: none; } 100% { transform: translateY(34px); } }
+.word { font: 64px/0.8 var(--pixel); letter-spacing: 0.02em; text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.8); padding-bottom: 6px; }
+.stamp {
+  display: block; margin-top: 12px; padding-top: 7px; border-top: 1px dashed rgba(230, 220, 194, 0.28);
+  font: 16px/1 var(--pixel); letter-spacing: 0.16em; color: var(--bone-dim); text-shadow: 1px 1px 0 #000;
+}
+.plate .soot { /* run-off under the plate */
+  position: absolute; left: 16%; right: 28%; top: 100%; height: 22px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(8, 6, 5, 0.55) 20%, transparent 34%, rgba(8, 6, 5, 0.4) 60%, transparent 72%, rgba(8, 6, 5, 0.5) 86%, transparent);
   -webkit-mask-image: linear-gradient(180deg, #000, transparent); mask-image: linear-gradient(180deg, #000, transparent);
 }
-.kicker { margin: 38px 0 0; font: 12px var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--sodium); text-shadow: 0 0 10px rgba(255, 179, 71, calc(0.4 * var(--lamp))); }
-.pitch { margin: 12px 0 0; max-width: 34em; font-size: 18px; line-height: 1.55; color: #ded3b9; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
 
-/* Download: an exit. A bottle-green enamel plate, a pale sodium shaft behind it, the extraction ring fills on click. */
-.dl { position: relative; margin-top: 30px; justify-self: start; }
-.shaft {
-  position: absolute; left: 34px; bottom: 30px; width: 64px; height: 70vh; transform: translateX(-50%);
-  background: linear-gradient(0deg, rgba(240, 214, 150, 0.6), rgba(227, 201, 138, 0.2) 30%, transparent 75%);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent); mask-image: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
-  opacity: 0.6; transition: opacity 0.35s ease, width 0.35s ease; pointer-events: none; filter: blur(1px);
+@media (max-width: 480px) {
+  .hang { padding-top: 52px; }
+  .chain { height: 56px; }
+  .word { font-size: 48px; }
+  .letter { width: 44px; height: 44px; }
+  .row { gap: 12px; }
+  .plate { padding: 18px 16px 12px; }
 }
-html.js:not(.still) .shaft { animation: shimmer 3.2s ease-in-out infinite; }
-@keyframes shimmer { 50% { filter: blur(2px) brightness(1.25); } }
-.dl:hover .shaft, .dl.done .shaft { opacity: 1; width: 86px; }
-.exit {
-  position: relative; display: flex; align-items: center; gap: 18px; text-decoration: none; color: var(--bone);
-  padding: 14px 28px 14px 14px; border: 3px solid var(--bone);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 40%),
-    linear-gradient(180deg, transparent 70%, rgba(6, 10, 7, 0.5)),
-    var(--enamel);
-  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.8), inset 0 0 0 2px var(--enamel), inset 0 0 0 4px rgba(230, 220, 194, 0.25), 0 0 40px rgba(227, 201, 138, 0.1);
-  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.4), box-shadow 0.2s ease, background-color 0.2s ease;
-}
-.exit:hover { color: var(--bone); transform: translateY(-3px); box-shadow: 6px 9px 0 rgba(0, 0, 0, 0.8), inset 0 0 0 2px var(--enamel), inset 0 0 0 4px rgba(230, 220, 194, 0.35), 0 0 50px rgba(227, 201, 138, 0.22); }
-.exit:active { transform: translateY(2px); box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.8), inset 0 0 0 2px var(--enamel), inset 0 0 0 4px rgba(230, 220, 194, 0.25); }
-.ring { position: relative; flex: none; width: 64px; height: 64px; display: grid; place-items: center; }
-.ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.ring .track { fill: none; stroke: rgba(230, 220, 194, 0.18); stroke-width: 4; stroke-dasharray: 3 3; }
-.ring .fill { fill: none; stroke: var(--bone); stroke-width: 4; stroke-dasharray: 176; stroke-dashoffset: 176; }
-.ring .letter {
-  width: 40px; height: 40px; display: grid; place-items: center; background: var(--enamel-hi); border: 2px solid var(--bone);
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.7);
-}
-.ring .letter svg { position: static; width: 22px; height: 22px; transform: none; fill: var(--bone); }
-.exit-text { display: grid; gap: 4px; }
-.exit-name { font-size: 32px; line-height: 0.9; text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.8); }
-.exit-sub { font-size: 16px; line-height: 1; color: var(--bone-dim); letter-spacing: 0.08em; }
-.dl.done .exit { background-color: var(--enamel-hi); }
-.dl.flash .exit { animation: plate-flash 0.5s ease; }
-@keyframes plate-flash { 20% { box-shadow: 0 0 0 3px var(--bone), 0 0 70px rgba(255, 220, 150, 0.6); filter: brightness(1.4); } }
-
-/* The ticket stub that drops out after a click: what to do with the zip. */
-.ticket {
-  position: relative; margin: 14px 0 0 10px; width: min(420px, calc(100vw - 48px)); padding: 14px 18px 14px 22px;
-  color: #231d15; background: linear-gradient(180deg, #efe5cb, #d9cca9);
-  box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.6);
-  -webkit-mask: radial-gradient(circle 5px at 0 50%, transparent 98%, #000) left / 51% 14px repeat-y, radial-gradient(circle 5px at 100% 50%, transparent 98%, #000) right / 51% 14px repeat-y;
-  mask: radial-gradient(circle 5px at 0 50%, transparent 98%, #000) left / 51% 14px repeat-y, radial-gradient(circle 5px at 100% 50%, transparent 98%, #000) right / 51% 14px repeat-y;
-  transform-origin: 20% 0;
-}
-.ticket[hidden] { display: none; }
-html.js:not(.still) .ticket.drop { animation: ticket 0.7s cubic-bezier(0.25, 1.5, 0.45, 1) both; }
-@keyframes ticket { from { transform: translateY(-26px) rotate(-6deg); opacity: 0; } }
-.ticket .t-head { display: flex; justify-content: space-between; font-size: 16px; line-height: 1; letter-spacing: 0.1em; color: #6a5a43; border-bottom: 1px dashed #9c8a6a; padding-bottom: 6px; }
-.ticket .t-big { display: block; margin: 8px 0 6px; font-size: 32px; line-height: 0.9; color: #1e1811; }
-.ticket ol { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.5; }
-.ticket code { font-size: 13px; background: rgba(60, 40, 20, 0.1); padding: 0 3px; }
-
-.build { margin: 18px 0 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font: 12px var(--mono); letter-spacing: 0.06em; color: var(--bone-dim); }
-.build b { color: var(--bone); font-weight: 600; }
-.build button, .linkish {
-  font: inherit; color: var(--sodium); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
-}
-.build .sha { max-width: 100%; overflow-wrap: anywhere; }
-.req { margin: 8px 0 0; font-size: 14px; color: var(--bone-dim); }
-.not-windows { margin: 10px 0 0; padding: 8px 12px; font-size: 14px; border-left: 3px solid var(--sodium); background: rgba(255, 179, 71, 0.08); color: var(--bone); }
-.not-windows[hidden] { display: none; }
-.jump { display: inline-block; margin-top: 22px; font: 12px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-dim); text-decoration: none; }
-.jump:hover { color: var(--sodium); }
-.jump span { display: inline-block; }
-html.js:not(.still) .jump span { animation: nudge 2.4s ease-in-out infinite; }
-@keyframes nudge { 50% { transform: translateY(4px); } }
-html.js:not(.still) .hero .stagger { animation: rise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-html.js:not(.still) .hero .stagger:nth-of-type(1) { animation-delay: 1.3s; }
-@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
-
-/* ---------- sections ---------- */
-
-.sect { position: relative; max-width: 1180px; margin: 0 auto 28px; padding: 0 var(--gutter); }
-.panel {
-  position: relative; padding: 28px 30px 30px; border: 1px solid var(--edge);
-  background:
-    linear-gradient(180deg, rgba(255, 240, 210, 0.05), rgba(255, 240, 210, 0) 90px),
-    var(--panel);
-  box-shadow: inset 0 1px 0 rgba(255, 240, 210, 0.08), 0 24px 60px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
-}
-.panel::after { /* soot along the bottom edge */
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 40px; pointer-events: none;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.35), transparent);
-}
-.street {
-  /* a street-name plate: the section heading */
-  display: inline-flex; align-items: center; gap: 12px; margin: 0 0 20px; padding: 6px 18px 4px 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 50%), var(--enamel);
-  border: 2px solid var(--bone); box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.75), inset 0 0 0 2px var(--enamel), inset 0 0 0 3px rgba(230, 220, 194, 0.22);
-  font-size: 32px; line-height: 1; color: var(--bone); text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.7); text-transform: uppercase;
-  transform-origin: 50% 0;
-}
-.street::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #efe6cf, #8f8672 60%, #3a342c); flex: none; }
-.street.shut { background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 50%), var(--oxblood); box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.75), inset 0 0 0 2px var(--oxblood), inset 0 0 0 3px rgba(230, 220, 194, 0.22); }
-.lede { margin: -6px 0 20px; max-width: 46em; color: #cfc4aa; }
-
-/* Scroll reveals: a plate swings down on its top edge, content rises. */
-html.js:not(.still) .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s ease, transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
-html.js:not(.still) .reveal.in { opacity: 1; transform: none; }
-html.js:not(.still) .reveal .street { transform: perspective(500px) rotateX(-75deg); opacity: 0; transition: transform 0.9s cubic-bezier(0.3, 1.5, 0.45, 1) 0.1s, opacity 0.3s ease 0.1s; }
-html.js:not(.still) .reveal.in .street { transform: none; opacity: 1; }
-
-/* Install steps */
-.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; counter-reset: step; }
-.step { position: relative; padding: 18px 18px 18px; border: 1px solid var(--edge); background: rgba(8, 7, 6, 0.55); counter-increment: step; }
-.step h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 10px; font-size: 32px; line-height: 1; font-weight: 400; }
-.step h3::before {
-  content: counter(step); display: grid; place-items: center; width: 34px; height: 34px; flex: none; font-size: 32px; line-height: 1;
-  background: var(--enamel); border: 2px solid var(--bone); box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.7); padding-bottom: 4px;
-}
-.step p { margin: 0 0 8px; color: #cfc4aa; font-size: 15px; }
-.step .muted { color: var(--bone-dim); font-size: 13.5px; }
-.smartscreen { /* a small, honest mock of the SmartScreen box so it is recognisable */
-  margin: 12px 0 4px; padding: 12px 14px; background: #1c5c95; color: #fff; font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-}
-.smartscreen b { display: block; font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-.smartscreen .more { color: #fff; text-decoration: underline; position: relative; }
-.smartscreen .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
-.smartscreen .btn { padding: 3px 12px; border: 1px solid #fff; font-size: 12.5px; }
-.smartscreen .btn.run { background: #fff; color: #1c5c95; font-weight: 600; }
-html.js:not(.still) .reveal.in .smartscreen .more, html.js:not(.still) .reveal.in .smartscreen .btn.run { animation: point 2.6s ease-in-out infinite 1s; }
-html.js:not(.still) .reveal.in .smartscreen .btn.run { animation-delay: 2.3s; }
-@keyframes point { 0%, 60%, 100% { box-shadow: none; } 70%, 85% { box-shadow: 0 0 0 3px var(--sodium); } }
-.step code { font-size: 13px; color: var(--bone); background: rgba(230, 220, 194, 0.08); padding: 1px 5px; }
-
-/* Screenshots: prints pinned to the shutter */
-.shots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; padding: 0; list-style: none; }
-.shot { margin: 0; }
-.shot a { display: block; text-decoration: none; color: inherit; }
-.shot .frame { position: relative; display: block; border: 2px solid rgba(230, 220, 194, 0.7); box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.7); overflow: hidden; background: #000; aspect-ratio: 16 / 9; }
-.shot img { display: block; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.3s ease; filter: saturate(0.95) brightness(0.92); }
-.shot .frame::after { /* a lamp sweep on hover */
-  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
-  background: linear-gradient(105deg, transparent 35%, rgba(255, 200, 120, 0.22) 50%, transparent 65%); transform: translateX(-60%);
-}
-.shot a:hover img { transform: scale(1.04); filter: saturate(1.05) brightness(1.05); }
-html.js:not(.still) .shot a:hover .frame::after { opacity: 1; transform: translateX(60%); transition: transform 0.9s ease, opacity 0.2s ease; }
-.shot figcaption { margin-top: 10px; font-size: 14px; color: #cfc4aa; line-height: 1.45; }
-.shot figcaption .px { display: block; font-size: 16px; color: var(--bone); letter-spacing: 0.08em; }
-
-/* ---------- the test card ---------- */
-
-.card-bar { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin: 0 -30px 22px; padding: 12px 30px; background: #0d0b09; border-block: 1px solid var(--edge); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45); }
-.mode { display: inline-flex; border: 1px solid rgba(230, 220, 194, 0.3); }
-.mode label { position: relative; cursor: pointer; }
-.mode input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
-.mode span { display: block; padding: 6px 12px 4px; font-size: 16px; line-height: 1; color: var(--bone-dim); letter-spacing: 0.06em; }
-.mode input:checked + span { background: var(--bone); color: var(--soot); }
-.mode input:focus-visible + span { outline: 2px solid var(--sodium); outline-offset: 2px; }
-.mode-hint { font-size: 13px; color: var(--bone-dim); flex: 1 1 260px; }
-.mode-hint code { font-size: 12px; color: var(--bone); }
-.progress { display: flex; align-items: center; gap: 10px; margin-left: auto; }
-.progress .count { font-size: 16px; color: var(--bone-dim); letter-spacing: 0.06em; white-space: nowrap; }
-.mag { display: flex; gap: 2px; align-items: flex-end; height: 18px; } /* one round per item: ticked rounds are spent brass */
-.mag i { display: block; width: 5px; height: 16px; background: linear-gradient(180deg, #e8c77a 0 30%, #b88a3a 30% 100%); box-shadow: inset -1px 0 rgba(0, 0, 0, 0.35); border-radius: 2px 2px 0 0; transition: transform 0.25s ease, opacity 0.25s ease, background 0.25s ease; }
-.mag i.spent { background: #5a4a2c; opacity: 0.45; transform: translateY(2px) scaleY(0.75); transform-origin: bottom; }
-.reset { font-size: 13px; }
-
-.card-intro p { margin: 0 0 10px; max-width: 52em; color: #cfc4aa; font-size: 15px; }
-.card-intro code { font-size: 13px; color: var(--bone); background: rgba(230, 220, 194, 0.08); padding: 1px 5px; }
-.session { margin-top: 30px; }
-.session-head { display: flex; align-items: center; gap: 14px; margin: 0 0 6px; }
-.plate-letter {
-  display: grid; place-items: center; width: 48px; height: 48px; flex: none; padding-bottom: 12px;
-  font: 48px/1 var(--pixel); color: var(--bone); background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 50%), var(--enamel);
-  border: 3px solid var(--bone); box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.75), inset 0 0 0 2px var(--enamel), inset 0 0 0 3px rgba(230, 220, 194, 0.25);
-  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.7); -webkit-font-smoothing: none;
-}
-.session-head h3 { margin: 0; font: 400 32px/1 var(--pixel); letter-spacing: 0.04em; -webkit-font-smoothing: none; }
-.session-mins { margin-left: auto; font: 12px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--sodium); padding: 3px 8px; border: 1px solid rgba(255, 179, 71, 0.4); }
-.session-note { margin: 8px 0 0; color: var(--bone-dim); font-size: 14.5px; max-width: 60em; }
-.session-note kbd, .item kbd, .keys kbd, .feedback kbd { font: 12px/1 var(--mono); }
-.items { list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.item { position: relative; padding: 16px 18px 14px; border: 1px solid var(--edge); background: rgba(8, 7, 6, 0.6); transition: border-color 0.3s ease, background 0.3s ease, opacity 0.3s ease; min-width: 0; }
-.item:target { border-color: var(--sodium); box-shadow: 0 0 0 1px var(--sodium); }
-.item.done { opacity: 0.62; background: rgba(8, 7, 6, 0.35); }
-.item.done h4 { text-decoration: line-through; text-decoration-color: rgba(230, 220, 194, 0.45); }
-.item-head { display: flex; align-items: flex-start; gap: 10px; }
-.item-head h4 { margin: 1px 0 0; font-size: 16px; font-weight: 650; line-height: 1.3; }
-.item-id { flex: none; font: 700 11px/1 var(--mono); letter-spacing: 0.04em; padding: 4px 5px 3px; margin-top: 2px; background: var(--bone); color: var(--soot); }
-.tick { position: relative; flex: none; width: 22px; height: 22px; cursor: pointer; }
-.tick input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
-.tick-box { position: absolute; inset: 0; border: 2px solid var(--bone-dim); background: rgba(0, 0, 0, 0.3); }
-.tick-box::after { /* a chalk tick */
-  content: ""; position: absolute; left: 5px; top: 0px; width: 7px; height: 13px; border: solid var(--sodium); border-width: 0 3px 3px 0;
-  transform: rotate(40deg) scale(0); transform-origin: 60% 60%; transition: transform 0.25s cubic-bezier(0.3, 1.8, 0.5, 1);
-}
-.tick input:checked + .tick-box { border-color: var(--sodium); }
-.tick input:checked + .tick-box::after { transform: rotate(40deg) scale(1); }
-.tick input:focus-visible + .tick-box { outline: 2px solid var(--sodium); outline-offset: 2px; }
-
-.cmds { display: grid; gap: 6px; margin: 12px 0 10px; }
-.cmd { position: relative; display: flex; align-items: stretch; min-width: 0; border: 1px solid rgba(230, 220, 194, 0.18); background: #070605; }
-.cmd code { flex: 1; min-width: 0; padding: 7px 10px; font-size: 12.5px; line-height: 1.5; color: var(--bone); white-space: normal; overflow-x: auto; scrollbar-width: thin; }
-.cmd .tok, .cmd .cmd-pre { white-space: nowrap; }
-.cmd .cmd-args { word-spacing: 0.1em; }
-.cmd .cmd-pre { color: var(--bone-faint); }
-.cmd-tag { align-self: center; margin-right: 6px; font: 10px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone-faint); border: 1px solid var(--bone-faint); padding: 1px 4px; }
-html.mode-zip .cmd.is-literal { opacity: 0.6; }
-.copy {
-  position: relative; flex: none; min-width: 64px; padding: 0 12px; border: 0; border-left: 1px solid rgba(230, 220, 194, 0.18); cursor: pointer;
-  font: 16px/1 var(--pixel); letter-spacing: 0.08em; color: var(--bone); background: rgba(230, 220, 194, 0.07); -webkit-font-smoothing: none;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.copy:hover { background: var(--bone); color: var(--soot); }
-.copy.ok { background: var(--enamel); color: var(--bone); }
-.brass { /* the spent case that flicks out of a copied line, like the magazine HUD */
-  position: fixed; z-index: 50; width: 5px; height: 11px; pointer-events: none; border-radius: 1px 1px 0 0;
-  background: linear-gradient(90deg, #f3d792, #b88a3a); box-shadow: 0 0 6px rgba(255, 200, 100, 0.6);
-}
-.look, .notes { margin: 0 0 8px; padding-left: 18px; font-size: 14px; color: #cfc4aa; }
-.look li { margin: 3px 0; }
-.look li::marker { color: var(--sodium); }
-.item code { font-size: 12.5px; color: var(--bone); background: rgba(230, 220, 194, 0.08); padding: 0 4px; overflow-wrap: anywhere; }
-.cmd code { background: none; padding: 7px 10px; overflow-wrap: normal; font-weight: 400; }
-.ask { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; padding: 9px 11px; font-size: 14px; color: var(--bone); background: rgba(255, 179, 71, 0.07); border: 1px solid rgba(255, 179, 71, 0.22); }
-.ask strong { color: var(--candle); }
-.ask-q { /* the loot panel's "?" outline */
-  display: flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; padding: 0 0 5px 1px;
-  font: 32px/0 var(--pixel); color: var(--bone-dim); border: 2px solid var(--bone-faint); background: rgba(0, 0, 0, 0.35); -webkit-font-smoothing: none;
-}
-kbd {
-  display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 5px; margin: 0 1px;
-  font: 12px/1 var(--mono); color: #1c1812; border-radius: 3px;
-  background: radial-gradient(4px 3px at 70% 70%, rgba(40, 30, 20, 0.25), transparent), linear-gradient(180deg, #e9dfc6, #bfb293);
-  border: 1px solid #5d574b; border-bottom-width: 3px; box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5); vertical-align: 1px;
-}
-
-/* ---------- controls ---------- */
-
-.keys { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 40px; }
-.keys h3 { margin: 0 0 10px; font: 400 32px/1 var(--pixel); color: var(--bone-dim); -webkit-font-smoothing: none; }
-.keys dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; font-size: 14.5px; }
-.keys dt { text-align: right; white-space: nowrap; }
-.keys dd { margin: 0; color: #cfc4aa; }
-
-/* ---------- co-op and feedback ---------- */
-
-.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }
-.two h3 { margin: 0 0 8px; font: 400 32px/1 var(--pixel); -webkit-font-smoothing: none; }
-.two p, .two li { color: #cfc4aa; font-size: 15px; }
-.two ol, .two ul { padding-left: 20px; margin: 0 0 10px; }
-.two li { margin: 4px 0; }
-.two code, .feedback code { font-size: 13px; color: var(--bone); background: rgba(230, 220, 194, 0.08); padding: 1px 5px; overflow-wrap: anywhere; }
-.warn { margin: 16px 0 0; padding: 10px 14px; border-left: 3px solid var(--warn); background: rgba(212, 85, 61, 0.08); font-size: 14px; color: var(--bone); }
-.feedback .big-keys { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 14px; font-size: 15px; color: #cfc4aa; }
-.feedback .big-keys kbd { height: 34px; min-width: 40px; font-size: 15px; padding: 0 10px; border-bottom-width: 5px; }
-
-/* ---------- footer ---------- */
-
-.foot { position: relative; z-index: 2; max-width: 1180px; margin: 40px auto 0; padding: 14px var(--gutter) max(28px, env(safe-area-inset-bottom)); text-shadow: 0 1px 2px #000, 0 0 8px #000; display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; font: 11px/1.6 var(--mono); letter-spacing: 0.08em; color: var(--bone-dim); }
-.foot a { color: var(--bone); }
-.foot a:hover { color: var(--sodium); }
-.foot p { margin: 0; }
-
-/* ---------- widths ---------- */
-
-@media (max-width: 1000px) {
-  .shots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .items { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 760px) {
-  .slot { display: none; }
-  .crumbs { padding-left: 10px; }
-  .hero { padding-top: 3vh; min-height: auto; }
-  .sign { padding: 14px 20px 12px; }
-  .sign .word { font-size: 64px; }
-  .sign .sub { font-size: 16px; letter-spacing: 0.18em; }
-  .pitch { font-size: 16px; }
-  .hero::before { left: 0; right: 0; background: linear-gradient(180deg, transparent 0, rgba(6, 5, 4, 0.55) 30%, rgba(6, 5, 4, 0.55) 85%, transparent); }
-  .exit { padding: 10px 16px 10px 10px; gap: 12px; }
-  .exit-name { font-size: 32px; }
-  .ring { width: 52px; height: 52px; }
-  .ring .letter { width: 32px; height: 32px; }
-  .panel { padding: 22px 16px 22px; }
-  .card-bar { position: relative; margin: 0 -16px 18px; padding: 10px 16px; }
-  .progress { margin-left: 0; }
-  .steps, .keys, .two { grid-template-columns: minmax(0, 1fr); }
-  .shots { grid-template-columns: minmax(0, 1fr); }
-  .street { font-size: 32px; }
-  .session-head h3 { font-size: 32px; }
-  .keys dt { text-align: left; }
-}
-@media (max-width: 380px) {
-  .sign .word { font-size: 48px; }
-  .exit-name { font-size: 16px; letter-spacing: 0.06em; }
-}
-
-/* reduced motion: the query, or html.still (?still) to check this path */
+@media (max-width: 340px) { .word { font-size: 32px; padding-bottom: 3px; } }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.001s !important; animation-iteration-count: 1 !important; transition-duration: 0.001s !important; }
-  .reveal, .reveal .street { opacity: 1 !important; transform: none !important; }
+  *, *::before, *::after { animation: none !important; transition-duration: 0.001s !important; }
 }
-html.still *, html.still *::before, html.still *::after { animation-duration: 0.001s !important; animation-iteration-count: 1 !important; transition-duration: 0.001s !important; }
+html.still *, html.still *::before, html.still *::after { animation: none !important; transition-duration: 0.001s !important; }
 </style>
 </head>
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
-<div class="bg-fallback" aria-hidden="true"></div>
-<div class="grain" aria-hidden="true"></div>
-
-<header class="bar">
-  <a class="mark" href="/" aria-label="1v5.dev, back to the shelf"><span class="mark-orb" aria-hidden="true"></span><span class="mark-text">1v5<b>.dev</b></span></a>
-  <p class="crumbs"><a href="/">Shelf</a> / <b>Closing Time</b></p>
-  <p class="slot">Block 03 · <b>Windows build</b></p>
-</header>
-
+<div class="fallback" aria-hidden="true"></div>
 <main>
-  <section class="hero" aria-labelledby="title">
-    <div class="sign-wrap">
-      <span class="chain l" aria-hidden="true"></span><span class="chain r" aria-hidden="true"></span>
-      <h1 class="sign px" id="title"><span class="word">CLOSING</span><span class="word">TIME</span><span class="sub">WINDOWS PLAYTEST · {{CARD_SHORT}}</span><span class="drip" aria-hidden="true"></span></h1>
-    </div>
-    <p class="kicker stagger">Night-market extraction shooter · build {{DATE}}</p>
-    <p class="pitch stagger">The night market is shutting. Slip into the stalls and back alleys, read who is watching, take what is worth taking and get out before the shutters come down.</p>
-
-    <div class="dl stagger" id="dl-wrap">
-      <span class="shaft" aria-hidden="true"></span>
-      <a class="exit" id="dl" href="{{ZIP_URL}}">
-        <span class="ring" aria-hidden="true">
-          <svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="28"/><circle class="fill" id="ring-fill" cx="32" cy="32" r="28"/></svg>
-          <span class="letter"><svg viewBox="0 0 11 11" shape-rendering="crispEdges"><path d="M4 0h3v5h3v1h-1v1h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1h-1v-1h-1v-1h3z"/></svg></span>
-        </span>
-        <span class="exit-text"><span class="exit-name px">DOWNLOAD FOR WINDOWS</span><span class="exit-sub px">EXIT D · OPEN · ZIP {{SIZE_MB}} MB</span></span>
-      </a>
-      <div class="ticket" id="ticket" hidden role="status">
-        <span class="t-head px"><span>EXTRACTED</span><span>EXIT D</span></span>
-        <span class="t-big px">DOWNLOAD STARTED</span>
-        <ol>
-          <li>Right-click the zip, <b>Extract All</b> (don't run it from inside the zip).</li>
-          <li>Open <code>ClosingTime</code>, double-click <code>ClosingTime.exe</code>.</li>
-          <li>SmartScreen: <b>More info</b>, then <b>Run anyway</b> (the build isn't signed).</li>
-        </ol>
-      </div>
-    </div>
-    <p class="build stagger">
-      <span>Build <b>{{DATE}}</b> ({{TESTED}})</span>
-      <span>commit <b>{{COMMIT}}</b></span>
-      <span><b>{{SIZE_MB}}</b> MB</span>
-      <span class="sha">SHA-256 <button type="button" id="sha" data-sha="{{SHA256}}" title="{{SHA256}}">copy</button></span>
-    </p>
-    <p class="req stagger">Windows 10 or 11, 64-bit. No installer: unzip and run. Mouse and keyboard. The zip also carries the test card as <code>TEST-CARD.txt</code>.</p>
-    <p class="not-windows" id="not-windows" hidden>This is a Windows build. Open this page on your PC to play; the test card below reads fine here.</p>
-    <a class="jump stagger" href="#card">Tonight's test card, {{CARD_COUNT}} items, about {{CARD_MINUTES}} min <span aria-hidden="true">↓</span></a>
-  </section>
-
-  <section class="sect reveal" id="install" aria-labelledby="install-h">
-    <div class="panel">
-      <h2 class="street px" id="install-h">INSTALL</h2>
-      <ol class="steps">
-        <li class="step">
-          <h3 class="px">UNZIP</h3>
-          <p>Right-click <code>ClosingTime-win64.zip</code>, <b>Extract All</b>, anywhere (the Desktop is fine).</p>
-          <p class="muted">Don't run it from inside the zip: saves and logs need a real folder.</p>
-        </li>
-        <li class="step">
-          <h3 class="px">SMARTSCREEN</h3>
-          <p>Windows will probably stop it once. The build isn't signed, that's all.</p>
-          <div class="smartscreen" aria-hidden="true">
-            <b>Windows protected your PC</b>
-            Microsoft Defender SmartScreen prevented an unrecognised app from starting. <span class="more">More info</span>
-            <div class="row"><span class="btn run">Run anyway</span><span class="btn">Don't run</span></div>
-          </div>
-          <p class="muted">Click <b>More info</b>, then <b>Run anyway</b>. If the firewall asks, allow it (co-op needs it).</p>
-        </li>
-        <li class="step">
-          <h3 class="px">RUN</h3>
-          <p>Double-click <code>ClosingTime.exe</code>. The other one, <code>ClosingTime.console.exe</code>, is for crash reports.</p>
-          <p class="muted">For the test card's flags: type <code>powershell</code> in the folder's address bar, then run the copied line.</p>
-        </li>
-      </ol>
-    </div>
-  </section>
-
-  <section class="sect reveal" id="new" aria-labelledby="new-h">
-    <div class="panel">
-      <h2 class="street px" id="new-h">IN THIS BUILD</h2>
-      <p class="lede">Real frames from this build, at the game's own pixel size. Everything since the 27 Sep playtest: gun traits, armour and falloff, the perspective camera, the magazine HUD and enamel exit plates, readable doorways, bigger bodies, the looting fix for co-op and the overnight art.</p>
-      <ul class="shots">
-        <li><figure class="shot"><a href="#card-b2"><span class="frame"><img src="assets/shot-exits.webp" width="640" height="360" loading="lazy" decoding="async" alt="An enamel exit plate reading B, Service Gate, Hold E: lift, above a dark roof; the double-tap O exit list top right with shutter clocks."></span></a><figcaption><span class="px">B2 · EXIT PLATES</span>Bone letters on enamel, a sodium shaft, and tonight's exits on a double-tap of O.</figcaption></figure></li>
-        <li><figure class="shot"><a href="#card-a3"><span class="frame"><img src="assets/shot-armour.webp" width="640" height="360" loading="lazy" decoding="async" alt="The firing range at night: targets on numbered lanes, the readout says last: body 11.7 m, 11 damage, vest II x0.35."></span></a><figcaption><span class="px">A3 · ARMOUR</span>Pen against tier, pips, chevrons: guards now take about seven pistol body shots.</figcaption></figure></li>
-        <li><figure class="shot"><a href="#card-b4"><span class="frame"><img src="assets/shot-loot.webp" width="640" height="360" loading="lazy" decoding="async" alt="Searching a scav's body: the loot panel shows two question-mark outlines for unsearched items and the bag with rendered icons."></span></a><figcaption><span class="px">B4 · SEARCHING</span>"?" outlines at each item's real size until the search reaches it.</figcaption></figure></li>
-        <li><figure class="shot"><a href="#card-b1"><span class="frame"><img src="assets/shot-rain.webp" width="640" height="360" loading="lazy" decoding="async" alt="Heavy rain over a market square from above, pools of sodium lamplight, three scavs and parked vans."></span></a><figcaption><span class="px">B1 · THE MARKET</span>Perspective at FOV 32, rain, and the lamps the scavs stand in.</figcaption></figure></li>
-      </ul>
-    </div>
-  </section>
-
-  <section class="sect reveal" id="card" aria-labelledby="card-h">
-    <div class="panel">
-      <h2 class="street shut px" id="card-h">TEST CARD {{CARD_SHORT}}</h2>
-      <div class="card-bar">
-        <div class="mode" role="radiogroup" aria-label="Copy commands for">
-          <label><input type="radio" name="mode" value="zip" checked><span class="px">FROM THE ZIP</span></label>
-          <label><input type="radio" name="mode" value="repo"><span class="px">FROM THE REPO</span></label>
-        </div>
-        <span class="mode-hint" id="mode-hint">Lines start <code>.\ClosingTime.exe ++</code>: run them in PowerShell in the unzipped folder.</span>
-        <div class="progress"><span class="mag" id="mag" aria-hidden="true"></span><span class="count px" id="count">0 / {{CARD_COUNT}} DONE</span><button type="button" class="linkish reset" id="reset">reset</button></div>
-      </div>
-      <div id="card-body" data-card="{{CARD_ID}}">
-{{CARD}}
-      </div>
-    </div>
-  </section>
-
-  <section class="sect reveal" id="controls" aria-labelledby="controls-h">
-    <div class="panel">
-      <h2 class="street px" id="controls-h">CONTROLS</h2>
-      <div class="keys">
-        <div>
-          <h3>IN A RAID</h3>
-          <dl>
-            <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Move; the mouse aims</dd>
-            <dt><kbd>Left click</kbd></dt><dd>Shoot. The crosshair is the cone the shot uses</dd>
-            <dt><kbd>Right click</kbd></dt><dd>Aim down sights</dd>
-            <dt><kbd>Shift</kbd></dt><dd>Sprint</dd>
-            <dt><kbd>R</kbd></dt><dd>Reload (it pays out only when it finishes; firing cancels it)</dd>
-            <dt><kbd>E</kbd> hold</dt><dd>Search a container or body; lift an exit's shutter</dd>
-            <dt><kbd>Tab</kbd></dt><dd>Your bag</dd>
-            <dt><kbd>Q</kbd></dt><dd>Use a med</dd>
-            <dt><kbd>F</kbd> hold</dt><dd>Cook a throwable, release to throw; <kbd>C</kbd> next throwable</dd>
-            <dt><kbd>V</kbd></dt><dd>Next ammo type</dd>
-            <dt><kbd>G</kbd></dt><dd>Drop your worst item</dd>
-            <dt><kbd>M</kbd></dt><dd>Street map (if you carry one)</dd>
-            <dt><kbd>O</kbd> <kbd>O</kbd></dt><dd>Double-tap: tonight's exits and their clocks</dd>
-            <dt><kbd>Esc</kbd></dt><dd>Pause (online, the raid keeps running)</dd>
-          </dl>
-        </div>
-        <div>
-          <h3>PLAYTEST KEYS</h3>
-          <dl>
-            <dt><kbd>Shift</kbd>+<kbd>V</kbd> / <kbd>F9</kbd></dt><dd>Leave a note (screenshot and the last 10 s saved)</dd>
-            <dt><kbd>F1</kbd></dt><dd>Tuning panel; Copy JSON what you like</dd>
-            <dt><kbd>F2</kbd></dt><dd>Perspective or orthographic camera</dd>
-            <dt><kbd>F3</kbd></dt><dd>Debug: each scav's kit and traits</dd>
-            <dt><kbd>F4</kbd></dt><dd>Look presets (5, Dark PSX, is the default)</dd>
-            <dt><kbd>F5</kbd></dt><dd>Reset the raid</dd>
-            <dt><kbd>F6</kbd></dt><dd>Co-op panel: addresses and join codes</dd>
-            <dt><kbd>Z</kbd> <kbd>X</kbd> <kbd>B</kbd> <kbd>T</kbd></dt><dd>Range: walking targets, infinite ammo, sandbox gunsmith, reset</dd>
-            <dt><kbd>Enter</kbd></dt><dd>Restart after a <code>++ --raid</code> run</dd>
-          </dl>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="sect reveal" id="coop" aria-labelledby="coop-h">
-    <div class="panel">
-      <h2 class="street px" id="coop-h">CO-OP</h2>
-      <p class="lede">Host-authoritative, friends only, two to four players. It connects straight to the host's PC over UDP port 24565; there are no servers, lobbies or relays yet. The browser can't do this, which is one reason the web build is shelved.</p>
-      <div class="two">
-        <div>
-          <h3>HOST</h3>
-          <ol>
-            <li><b>PLAY</b> &gt; <b>CO-OP</b> &gt; <b>HOST A RAID</b>. At the firewall prompt tick Private <i>and</i> Public.</li>
-            <li>Copy a join code (it looks like <code>ABCDE-FGHJK</code>) and send it to your friends <b>privately</b>.</li>
-            <li>When "Friends here" lists them: <b>PICK A RAID</b> &gt; <b>DEPLOY</b>. Late joiners drop in mid-raid.</li>
-          </ol>
-        </div>
-        <div>
-          <h3>FRIEND</h3>
-          <ol>
-            <li>Same house: <b>PLAY</b> &gt; <b>CO-OP</b>, paste the LAN code, <b>JOIN</b>.</li>
-            <li>Another house: both of you join the same private network first (ZeroTier or Tailscale). The host sends the network details privately, then the code labelled with that network.</li>
-            <li>"Connected; waiting for the host's raid" means it worked.</li>
-          </ol>
-        </div>
-      </div>
-      <p class="warn">Don't post a network ID, an address or a join code anywhere public: a join code <i>is</i> the host's address. This page never shows one.</p>
-    </div>
-  </section>
-
-  <section class="sect reveal feedback" id="feedback" aria-labelledby="feedback-h">
-    <div class="panel">
-      <h2 class="street px" id="feedback-h">FEEDBACK</h2>
-      <p class="big-keys"><kbd>Shift</kbd>+<kbd>V</kbd> or <kbd>F9</kbd> anywhere: raids, the market, menus.</p>
-      <div class="two">
-        <div>
-          <h3>A NOTE IN THE GAME</h3>
-          <ol>
-            <li>Press the key; a one-line box opens (a solo raid pauses).</li>
-            <li>Type, or dictate and paste with <kbd>Ctrl</kbd>+<kbd>V</kbd>. <kbd>Enter</kbd> saves, <kbd>Esc</kbd> cancels.</li>
-            <li>It saves your words, a screenshot and the last 10 seconds beside the play log.</li>
-          </ol>
-          <p>Moments beat verdicts: "the scav shot me before I saw the '!'". So do ratios and slider positions (F1, Copy JSON).</p>
-        </div>
-        <div>
-          <h3>AFTER A SESSION</h3>
-          <p><b>Oscar:</b> nothing to send; the orchestrator reads the notes and the play log on this PC. Answer the card's questions in chat by number, like <code>A3 Tarkov, B1 fine at 32</code>.</p>
-          <p><b>Friends:</b> press <kbd>Win</kbd>+<kbd>R</kbd>, paste <code id="logpath">%APPDATA%\Godot\app_userdata\Closing Time\playtest</code> <button type="button" class="linkish" data-copy="#logpath">copy</button>, Enter, and send Oscar the newest <code>.jsonl</code> file and the <code>notes</code> folder.</p>
-          <p>A crash: run <code>ClosingTime.console.exe</code> instead and screenshot the black window when it dies.</p>
-        </div>
-      </div>
-    </div>
-  </section>
+  <h1 class="sr-only">Closing Time</h1>
+  <div class="hang" id="hang">
+    <span class="chain l" aria-hidden="true"></span><span class="chain r" aria-hidden="true"></span>
+    <a class="plate" id="dl" href="{{ZIP_URL}}"
+       title="Closing Time for Windows 10/11 · {{DATE}} · commit {{COMMIT}} · {{SIZE_MB}} MB · SHA-256 {{SHA256}} · unzip, run ClosingTime.exe (SmartScreen: More info, Run anyway)">
+      <span class="row">
+        <span class="letter" aria-hidden="true"><svg viewBox="0 0 11 11" shape-rendering="crispEdges"><path d="M4 0h3v5h3v1h-1v1h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-1h-1v-1h-1v-1h3z"/></svg></span>
+        <span class="word">DOWNLOAD</span>
+      </span>
+      <span class="stamp" id="stamp">WINDOWS · {{SIZE_STAMP}} MB · {{DATE_STAMP}}</span>
+      <span class="soot" aria-hidden="true"></span>
+    </a>
+  </div>
 </main>
-
-<footer class="foot">
-  <p><a href="/">Back to the shelf</a> · <a href="web/">old web build</a> (shelved 28 Sep: 27 Sep's game, solo only, the browser renderer; for the record, not for testing) · m5x7 font by Daniel Linssen</p>
-  <p><a href="https://github.com/OscarMcG-dev/orbwalk-roguelike">source</a> · <span id="bios">1V5 SYSTEM · BLOCK 03 · 2D MODE</span></p>
-</footer>
 
 <script type="x-shader/x-fragment" id="frag">
 {{SHADER}}
 </script>
-
 <script>
 (function () {
   'use strict';
@@ -701,266 +166,134 @@ html.still *, html.still *::before, html.still *::after { animation-duration: 0.
   var q = new URLSearchParams(location.search);
   var motion = matchMedia('(prefers-reduced-motion: reduce)');
   var still = motion.matches || q.has('still');
-  var store = {
-    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } },
-  };
   var $ = function (s) { return document.querySelector(s); };
+  var canvas = $('#bg'), plate = $('#dl'), hang = $('#hang'), stamp = $('#stamp');
+  var REST = 0.22;
+  var gl = null, loc = {}, W = 0, H = 0, raf = 0, last = 0, acc = 0, visible = true;
+  // shut: the shutter's bottom edge (0..1 from the top); hover lifts it a little, a press jolts it up.
+  var S = { t: 0, shut: REST, vel: 0, lamp: 1, glow: 0, glowT: 0, look: [0, 0], lookT: [0, 0] };
 
-  // ---------------------------------------------------------------- the backdrop shader
-
-  var canvas = $('#bg');
-  var gl = null, prog = null, loc = {}, W = 0, H = 0;
-  var S = { t: 0, shut: still ? 0.22 : -0.06, vel: 0, target: 0.22, lamp: 1, look: [0, 0], lookT: [0, 0] };
-  var visible = true, raf = 0, last = 0, acc = 0, dirty = true;
+  function setCss() {
+    root.style.setProperty('--shut', S.shut.toFixed(4));
+    root.style.setProperty('--swing', (still ? 0 : Math.max(-4, Math.min(4, -S.vel * 3))).toFixed(2) + 'deg');
+    root.style.setProperty('--glow', S.glow.toFixed(3));
+    root.style.setProperty('--lamp', S.lamp.toFixed(2));
+  }
 
   function initGl() {
     if (q.has('nogl')) return false;
-    try { gl = canvas.getContext('webgl', { antialias: false, alpha: false, powerPreference: 'low-power', preserveDrawingBuffer: false }); } catch (e) { gl = null; }
+    try { gl = canvas.getContext('webgl', { antialias: false, alpha: false, powerPreference: 'low-power' }); } catch (e) { gl = null; }
     if (!gl) return false;
-    var vs = 'attribute vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }';
-    var fs = $('#frag').textContent;
     function sh(type, src) {
       var s = gl.createShader(type);
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
+      gl.shaderSource(s, src); gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.warn('closing-time backdrop:', gl.getShaderInfoLog(s)); return null; }
       return s;
     }
-    var v = sh(gl.VERTEX_SHADER, vs), f = sh(gl.FRAGMENT_SHADER, fs);
+    var v = sh(gl.VERTEX_SHADER, 'attribute vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }');
+    var f = sh(gl.FRAGMENT_SHADER, $('#frag').textContent);
     if (!v || !f) return false;
-    prog = gl.createProgram();
-    gl.attachShader(prog, v); gl.attachShader(prog, f);
-    gl.bindAttribLocation(prog, 0, 'a');
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { console.warn('closing-time backdrop:', gl.getProgramInfoLog(prog)); return false; }
+    var prog = gl.createProgram();
+    gl.attachShader(prog, v); gl.attachShader(prog, f); gl.bindAttribLocation(prog, 0, 'a'); gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return false;
     gl.useProgram(prog);
-    var buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    ['u_res', 'u_time', 'u_shut', 'u_vel', 'u_lamp', 'u_look'].forEach(function (n) { loc[n] = gl.getUniformLocation(prog, n); });
-    canvas.addEventListener('webglcontextlost', function (e) { e.preventDefault(); gl = null; cancelAnimationFrame(raf); root.classList.remove('gl-ready'); setBios('GPU LOST · 2D MODE'); });
+    ['u_res', 'u_time', 'u_shut', 'u_vel', 'u_lamp', 'u_look', 'u_glow', 'u_plate'].forEach(function (n) { loc[n] = gl.getUniformLocation(prog, n); });
+    canvas.addEventListener('webglcontextlost', function (e) { e.preventDefault(); gl = null; root.classList.remove('gl-ready'); });
     return true;
   }
 
   function size() {
-    // A PSX-ish internal height (about 270 px), the width by aspect; the canvas is scaled up with nearest.
     H = Math.max(200, Math.min(300, Math.round(innerHeight / 3)));
     W = Math.max(120, Math.round(H * innerWidth / Math.max(1, innerHeight)));
     canvas.width = W; canvas.height = H;
     if (gl) gl.viewport(0, 0, W, H);
-    setBios(W + '×' + H + ' · DITHER ON');
-    dirty = true;
-  }
-
-  function setBios(s) { var b = $('#bios'); if (b) b.textContent = '1V5 SYSTEM · BLOCK 03 · ' + s; }
-
-  // Scroll brings the shutter down: closing time as you leave the street.
-  function scrollTarget() {
-    var hero = $('.hero');
-    var h = Math.max(innerHeight * 0.5, hero ? hero.offsetHeight : innerHeight);
-    var k = Math.max(0, Math.min(1, scrollY / (h * 0.9)));
-    k = k * k * (3 - 2 * k);
-    return 0.22 + 0.86 * k;
-  }
-
-  // The sodium lamp: steady with a hum, and every few seconds a stutter.
-  var nextStutter = 3 + Math.random() * 4, stutterEnd = 0;
-  function lampAt(t) {
-    if (still) return 1;
-    if (t > nextStutter && stutterEnd === 0) { stutterEnd = t + 0.25 + Math.random() * 0.5; }
-    if (stutterEnd && t < stutterEnd) return Math.sin(t * 90) > 0.2 ? 0.35 : 1;
-    if (stutterEnd && t >= stutterEnd) { stutterEnd = 0; nextStutter = t + 4 + Math.random() * 7; }
-    return 0.94 + 0.06 * Math.sin(t * 50) * Math.sin(t * 3.1);
-  }
-
-  function frame(now) {
-    raf = requestAnimationFrame(frame);
-    if (!gl || !visible) return;
-    var dt = Math.min(0.1, (now - (last || now)) / 1000);
-    last = now;
-    if (still) {
-      var target = 0.22;
-      if (Math.abs(S.shut - target) > 1e-4) { S.shut = target; dirty = true; }
-      if (!dirty) return;
-      S.t = 12.0; S.lamp = 1; S.vel = 0;
-      draw();
-      dirty = false;
-      return;
-    }
-    acc += dt;
-    if (acc < 1 / 30) return; // 30 fps: the look, and a kinder load on a laptop
-    var step = acc; acc = 0;
-    S.t += step;
-    // spring toward the target: a heavy shutter that bounces once at the bottom of its run
-    S.target = S.t < 0.55 ? -0.06 : scrollTarget();
-    var k = 38, d = 7.5;
-    var a = k * (S.target - S.shut) - d * S.vel;
-    S.vel += a * step;
-    S.shut += S.vel * step;
-    S.lamp = lampAt(S.t);
-    S.look[0] += (S.lookT[0] - S.look[0]) * Math.min(1, step * 3);
-    S.look[1] += (S.lookT[1] - S.look[1]) * Math.min(1, step * 3);
-    root.style.setProperty('--lamp', S.lamp.toFixed(2));
     draw();
   }
 
+  // The sodium lamp: a hum, and every few seconds a stutter. Steady while you reach for the plate.
+  var nextStutter = 3 + Math.random() * 4, stutterEnd = 0;
+  function lampAt(t) {
+    if (still) return 1;
+    if (S.glowT > 0) { stutterEnd = 0; return 1; }
+    if (t > nextStutter && !stutterEnd) stutterEnd = t + 0.25 + Math.random() * 0.5;
+    if (stutterEnd && t < stutterEnd) return Math.sin(t * 90) > 0.2 ? 0.35 : 1;
+    if (stutterEnd) { stutterEnd = 0; nextStutter = t + 4 + Math.random() * 7; }
+    return 0.94 + 0.06 * Math.sin(t * 50) * Math.sin(t * 3.1);
+  }
+
   function draw() {
+    if (!gl) return;
+    var r = plate.getBoundingClientRect();
     gl.uniform2f(loc.u_res, W, H);
     gl.uniform1f(loc.u_time, S.t % 1000);
     gl.uniform1f(loc.u_shut, S.shut);
     gl.uniform1f(loc.u_vel, Math.min(3, Math.abs(S.vel)));
     gl.uniform1f(loc.u_lamp, S.lamp);
     gl.uniform2f(loc.u_look, S.look[0], S.look[1]);
+    gl.uniform1f(loc.u_glow, S.glow);
+    gl.uniform2f(loc.u_plate, (r.left + r.width / 2) / innerWidth, 1 - (r.top + r.height / 2) / innerHeight);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    if (!root.classList.contains('gl-ready')) root.classList.add('gl-ready');
+    root.classList.add('gl-ready');
+  }
+
+  function frame(now) {
+    raf = requestAnimationFrame(frame);
+    if (!visible) return;
+    var dt = Math.min(0.1, (now - (last || now)) / 1000);
+    last = now;
+    acc += dt;
+    if (acc < 1 / 30) return; // 30 fps, like the game's captures
+    var step = acc; acc = 0;
+    S.t += step;
+    var target = !gl ? REST : S.t < 0.55 ? -0.06 : REST - 0.06 * S.glowT;
+    var a = 38 * (target - S.shut) - 7.5 * S.vel;
+    S.vel += a * step; S.shut += S.vel * step;
+    S.glow += (S.glowT - S.glow) * Math.min(1, step * 6);
+    S.lamp = lampAt(S.t);
+    S.look[0] += (S.lookT[0] - S.look[0]) * Math.min(1, step * 3);
+    S.look[1] += (S.lookT[1] - S.look[1]) * Math.min(1, step * 3);
+    setCss();
+    draw();
   }
 
   if (initGl()) {
+    if (!still) S.shut = -0.06;
     size();
     addEventListener('resize', size);
-    addEventListener('scroll', function () { dirty = true; }, { passive: true });
+  }
+  if (!still) {
     addEventListener('pointermove', function (e) {
       if (e.pointerType !== 'mouse') return;
-      S.lookT[0] = (e.clientX / innerWidth) * 2 - 1;
-      S.lookT[1] = (e.clientY / innerHeight) * 2 - 1;
+      S.lookT[0] = (e.clientX / innerWidth) * 2 - 1; S.lookT[1] = (e.clientY / innerHeight) * 2 - 1;
     }, { passive: true });
     document.addEventListener('visibilitychange', function () { visible = document.visibilityState === 'visible'; last = 0; });
     raf = requestAnimationFrame(frame);
   } else {
-    root.classList.add('no-gl');
-    setBios('NO GPU · 2D MODE');
+    S.t = 12; setCss(); draw();
+    addEventListener('resize', function () { setCss(); draw(); });
   }
-  motion.addEventListener && motion.addEventListener('change', function (e) { still = e.matches || q.has('still'); dirty = true; });
+  root.classList.add('ready');
 
-  // ---------------------------------------------------------------- reveals
-
-  var reveals = document.querySelectorAll('.reveal');
-  if ('IntersectionObserver' in window && !still) {
-    var io = new IntersectionObserver(function (es) {
-      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
-    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.04 });
-    reveals.forEach(function (el) { io.observe(el); });
-  } else {
-    reveals.forEach(function (el) { el.classList.add('in'); });
-  }
-
-  // ---------------------------------------------------------------- download: fill the exit ring, drop the ticket
-
-  var dl = $('#dl'), wrap = $('#dl-wrap'), ring = $('#ring-fill'), ticket = $('#ticket');
-  dl.addEventListener('click', function () {
-    // The link itself starts the download; this is only the show.
-    if (still) { wrap.classList.add('done'); ticket.hidden = false; return; }
-    var t0 = performance.now(), len = 176;
-    wrap.classList.remove('done', 'flash');
-    (function fill(now) {
-      var k = Math.min(1, (now - t0) / 650);
-      ring.style.strokeDashoffset = String(len * (1 - (1 - Math.pow(1 - k, 3))));
-      if (k < 1) requestAnimationFrame(fill);
-      else {
-        wrap.classList.add('done', 'flash');
-        ticket.hidden = false;
-        ticket.classList.remove('drop'); void ticket.offsetWidth; ticket.classList.add('drop');
-      }
-    })(t0);
+  // Reaching for the plate lifts the shutter a touch and lets the light out; a press jolts it up on its springs.
+  function reach(on) { S.glowT = on ? 1 : 0; if (still) { S.glow = S.glowT; setCss(); draw(); } }
+  plate.addEventListener('pointerenter', function () { reach(true); });
+  plate.addEventListener('pointerleave', function () { reach(false); });
+  plate.addEventListener('focus', function () { reach(true); });
+  plate.addEventListener('blur', function () { reach(false); });
+  plate.addEventListener('click', function () {
+    // The link starts the download; this is only the show.
+    if (!still && gl) { S.vel -= 1.9; S.glow = 1.6; }
+    plate.classList.add('pressed');
+    setTimeout(function () { plate.classList.remove('pressed'); }, 160);
+    var was = stamp.textContent;
+    stamp.textContent = 'DOWNLOADING · UNZIP, RUN THE EXE';
+    setTimeout(function () { stamp.textContent = was; }, 4000);
   });
-  if (!/Windows/i.test(navigator.userAgent)) $('#not-windows').hidden = false;
-
-  // ---------------------------------------------------------------- copy (with a brass case flicking out)
-
-  function copyText(text, btn) {
-    var done = function () {
-      var label = btn.textContent;
-      btn.classList.add('ok');
-      btn.textContent = btn.classList.contains('copy') ? 'Copied' : 'copied';
-      setTimeout(function () { btn.classList.remove('ok'); btn.textContent = label; }, 1400);
-      if (!still) brass(btn);
-    };
-    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, function () { fallback(text); done(); });
-    else { fallback(text); done(); }
-  }
-  function fallback(text) {
-    var ta = document.createElement('textarea');
-    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); } catch (e) { /* nothing more to try */ }
-    ta.remove();
-  }
-  function brass(btn) {
-    if (!document.body.animate) return;
-    var r = btn.getBoundingClientRect();
-    var b = document.createElement('i');
-    b.className = 'brass';
-    b.style.left = (r.left + r.width / 2) + 'px'; b.style.top = (r.top + 4) + 'px';
-    document.body.appendChild(b);
-    var dx = 30 + Math.random() * 30, up = 40 + Math.random() * 20;
-    b.animate([
-      { transform: 'translate(0,0) rotate(0deg)', opacity: 1 },
-      { transform: 'translate(' + dx * 0.6 + 'px,' + -up + 'px) rotate(260deg)', opacity: 1, offset: 0.4 },
-      { transform: 'translate(' + dx + 'px,' + (r.height + 6) + 'px) rotate(520deg)', opacity: 1, offset: 0.8 },
-      { transform: 'translate(' + (dx + 8) + 'px,' + (r.height - 2) + 'px) rotate(560deg)', opacity: 0 },
-    ], { duration: 700, easing: 'cubic-bezier(.3,.6,.5,1)' }).onfinish = function () { b.remove(); };
-  }
-
-  // ---------------------------------------------------------------- test card: prefix mode, ticks, the magazine
-
-  var PRE = { zip: '.\\ClosingTime.exe ++', repo: '.\\run.ps1 ++' };
-  var HINT = {
-    zip: 'Lines start <code>.\\ClosingTime.exe ++</code>: run them in PowerShell in the unzipped folder.',
-    repo: 'Lines start <code>.\\run.ps1 ++</code>: run them in PowerShell in <code>Documents\\closing-time</code>.',
-  };
-  function setMode(m) {
-    if (!PRE[m]) m = 'zip';
-    root.classList.toggle('mode-zip', m === 'zip');
-    document.querySelectorAll('.cmd-pre').forEach(function (el) { el.textContent = PRE[m]; });
-    $('#mode-hint').innerHTML = HINT[m];
-    var r = document.querySelector('.mode input[value="' + m + '"]');
-    if (r) r.checked = true;
-    store.set('ct-page-mode', m);
-  }
-  document.querySelectorAll('.mode input').forEach(function (r) { r.addEventListener('change', function () { setMode(r.value); }); });
-  setMode(store.get('ct-page-mode') || (q.has('repo') ? 'repo' : 'zip'));
-
-  document.addEventListener('click', function (e) {
-    var btn = e.target.closest && e.target.closest('.copy, [data-copy], #sha');
-    if (!btn) return;
-    if (btn.id === 'sha') return copyText(btn.dataset.sha, btn);
-    if (btn.dataset.copy) return copyText(document.querySelector(btn.dataset.copy).textContent, btn);
-    var cmd = btn.closest('.cmd');
-    if (!cmd) return;
-    var text = cmd.dataset.literal || (cmd.querySelector('.cmd-pre').textContent + ' ' + cmd.dataset.args);
-    copyText(text, btn);
-  });
-
-  var body = $('#card-body');
-  var KEY = body.dataset.card;
-  var ticks = [].slice.call(document.querySelectorAll('[data-tick]'));
-  var saved = {};
-  try { saved = JSON.parse(store.get(KEY) || '{}') || {}; } catch (e) { saved = {}; }
-  var mag = $('#mag');
-  ticks.forEach(function () { mag.appendChild(document.createElement('i')); });
-  function paintTicks() {
-    var n = 0;
-    ticks.forEach(function (t, i) {
-      var on = !!saved[t.dataset.tick];
-      t.checked = on;
-      t.closest('.item').classList.toggle('done', on);
-      mag.children[i].classList.toggle('spent', on);
-      if (on) n++;
-    });
-    $('#count').textContent = n + ' / ' + ticks.length + ' DONE';
-  }
-  ticks.forEach(function (t) {
-    t.addEventListener('change', function () {
-      if (t.checked) saved[t.dataset.tick] = 1; else delete saved[t.dataset.tick];
-      store.set(KEY, JSON.stringify(saved));
-      paintTicks();
-    });
-  });
-  $('#reset').addEventListener('click', function () { saved = {}; store.set(KEY, '{}'); paintTicks(); });
-  paintTicks();
+  motion.addEventListener && motion.addEventListener('change', function (e) { if (e.matches) location.reload(); });
 })();
 </script>
 </body>
