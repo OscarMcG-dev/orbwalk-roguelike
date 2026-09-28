@@ -105,7 +105,8 @@ static folders rather than their own sites, and the root is a launcher that list
 | `https://1v5.dev/` | the launcher: `index.html` + `src/launcher/` (three.js PSX stage, lazy-loaded), built by `.github/workflows/deploy.yml` |
 | `https://1v5.dev/orbwalk/` | this game: `orbwalk/index.html` + `src/main.tsx`, the second Vite input in `vite.config.ts` |
 | `https://1v5.dev/arcana-pets/` | the checked-in build in `public/arcana-pets/`, copied verbatim into `dist/` |
-| `https://1v5.dev/closing-time/` | the checked-in Godot web export in `public/closing-time/` (`npm run sync:closing-time`) |
+| `https://1v5.dev/closing-time/` | Closing Time's Windows download and playtest page, written by `npm run sync:closing-time` from `tools/closing-time-page.html` (+ `closing-time-backdrop.frag`, `closing-time-card.mjs`); the zip is the `closing-time-build` release asset, never in git. Recipe: `closing-time/docs/recipes/deploy-web.md` |
+| `https://1v5.dev/closing-time/web/` | the shelved Godot web export (27 Sep), linked only from that page's footer (`npm run sync:closing-time -- --web` refreshes it) |
 
 Orbwalk Rogue lived at the apex until 2026-09-26. Saves are per origin, so they carried over untouched; old deep links
 with `?tuning=…` or `?dev` are forwarded to `/orbwalk/` by an inline script in `index.html`. To add a game to the

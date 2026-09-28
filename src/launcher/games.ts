@@ -23,6 +23,8 @@ export interface Game {
   controls: string;
   /** Engine / stack, shown small. */
   tech: string;
+  /** The play button's label when it is not "Play" (Closing Time's page is a download). */
+  cta?: string;
   /** localStorage keys whose presence means "save data found" on this origin. */
   saveKeys?: string[];
   /** Which 3D prop stands on this game's pedestal. */
@@ -62,8 +64,9 @@ export const GAMES: Game[] = [
     kind: 'Night-market extraction shooter',
     pitch: 'The night market is shutting. Slip into the stalls and back alleys, read who is watching, take what is worth taking and get out before the shutters come down.',
     href: '/closing-time/',
-    controls: 'Mouse + keyboard · desktop',
-    tech: 'Godot 4.7 · web export',
+    controls: 'Mouse + keyboard · Windows',
+    tech: 'Godot 4.7 · Windows download',
+    cta: 'Download',
     prop: 'stall',
     accent: '#ff7eb6',
   },

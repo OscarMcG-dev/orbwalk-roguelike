@@ -77,8 +77,8 @@ function select(i: number, how: 'init' | 'key' | 'hover' | 'pad' | 'tap' | 'whee
   if (g.href) {
     play.href = g.href;
     play.removeAttribute('aria-disabled');
-    play.querySelector('.gel-label')!.textContent = 'Play';
-    play.title = `Play ${g.title}`;
+    play.querySelector('.gel-label')!.textContent = g.cta ?? 'Play';
+    play.title = `${g.cta ?? 'Play'} ${g.title}`;
   } else {
     play.removeAttribute('href');
     play.setAttribute('aria-disabled', 'true');
